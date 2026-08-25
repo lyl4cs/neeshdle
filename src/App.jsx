@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { CLIENT_ID, PLAYLIST_ID, STAGES } from './config'
+import { useCallback, useEffect, useState } from 'react'
+import { CLIENT_ID, DEFAULT_PLAYLIST_ID, STAGES } from './config'
 import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
 import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
-import { fetchMe, fetchPlaylistMeta, fetchPlaylistTracks, searchTracks } from './spotifyApi'
+import {
+  fetchMe,
+  fetchMyPlaylists,
+  fetchPlaylistMeta,
+  fetchPlaylistTracks,
+  searchTracks,
+} from './spotifyApi'
+import { getStatsSummary, recordRound } from './stats'
 import { playStage } from './timing'
 import { isSameSong, prioritizePoolMatches } from './trackMatch'
 import { useSpotifyAuth } from './useSpotifyAuth'
@@ -21,6 +28,13 @@ export default function App() {
     auth.status === 'authenticated',
   )
 
+  const [activePlaylistId, setActivePlaylistId] = useState(DEFAULT_PLAYLIST_ID)
+  const [playlistInfo, setPlaylistInfo] = useState(null)
+  const [myPlaylists, setMyPlaylists] = useState(null)
+  const [showSwitcher, setShowSwitcher] = useState(false)
+  const [showStats, setShowStats] = useState(false)
+  const [stats, setStats] = useState(null)
+
   const [pool, setPool] = useState(null)
   const [currentTrack, setCurrentTrack] = useState(null)
   const [poolError, setPoolError] = useState(null)
@@ -28,8 +42,7 @@ export default function App() {
   const [attempts, setAttempts] = useState([])
   const [busy, setBusy] = useState(false)
   const [playError, setPlayError] = useState(null)
-  const roundStartedAtRef = useRef(null)
-  const [winTimeSeconds, setWinTimeSeconds] = useState(null)
+  const [winClipSeconds, setWinClipSeconds] = useState(null)
   const [offsetMs, setOffsetMsState] = useState(0)
 
   const [query, setQuery] = useState('')
@@ -46,38 +59,67 @@ export default function App() {
   useEffect(() => {
     if (auth.status !== 'authenticated') return
     let cancelled = false
-    async function loadPool() {
+    async function loadMyPlaylists() {
+      try {
+        const accessToken = await auth.getValidAccessToken()
+        const me = await fetchMe(accessToken)
+        console.log('[pool] logged in as', me.id, '-', me.display_name)
+        const playlists = await fetchMyPlaylists(accessToken)
+        if (!cancelled) setMyPlaylists(playlists)
+      } catch (err) {
+        console.error('[pool] failed to load your playlists', err)
+      }
+    }
+    loadMyPlaylists()
+    return () => {
+      cancelled = true
+    }
+  }, [auth.status, auth.getValidAccessToken])
+
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    let cancelled = false
+    async function loadPlaylist() {
+      setPoolError(null)
       try {
         const accessToken = await auth.getValidAccessToken()
 
-        const me = await fetchMe(accessToken)
-        console.log('[pool] logged in as', me.id, '-', me.display_name)
-
-        const playlistMeta = await fetchPlaylistMeta(accessToken, PLAYLIST_ID)
+        const playlistMeta = await fetchPlaylistMeta(accessToken, activePlaylistId)
+        if (cancelled) return
+        setPlaylistInfo({ name: playlistMeta.name, thumbnailUrl: playlistMeta.images?.[0]?.url ?? null })
         console.log('[pool] playlist owner', playlistMeta.owner.id, '-', playlistMeta.owner.display_name, {
           name: playlistMeta.name,
           public: playlistMeta.public,
           collaborative: playlistMeta.collaborative,
         })
 
-        const tracks = await fetchPlaylistTracks(accessToken, PLAYLIST_ID)
+        const tracks = await fetchPlaylistTracks(accessToken, activePlaylistId)
         if (cancelled) return
         const dailyPick = pickDailyTrack(tracks)
         setPool(tracks)
         setCurrentTrack(dailyPick)
         setOffsetMsState(getIntroOffsetMs(dailyPick?.id))
-        roundStartedAtRef.current = Date.now()
+        setAttempts([])
+        setPlayError(null)
+        setQuery('')
+        setSearchResults([])
+        setWinClipSeconds(null)
       } catch (err) {
         if (cancelled) return
         console.error('[pool] failed to load playlist', err)
         setPoolError(err.message)
       }
     }
-    loadPool()
+    loadPlaylist()
     return () => {
       cancelled = true
     }
-  }, [auth.status, auth.getValidAccessToken])
+  }, [auth.status, auth.getValidAccessToken, activePlaylistId])
+
+  const switchPlaylist = useCallback((playlistId) => {
+    setActivePlaylistId(playlistId)
+    setShowSwitcher(false)
+  }, [])
 
   useEffect(() => {
     if (!query.trim() || auth.status !== 'authenticated') return
@@ -129,21 +171,31 @@ export default function App() {
       if (!currentTrack || over || busy) return
       const correct = isSameSong(track, currentTrack)
       console.log('[guess]', track.name, '-', track.artists, '->', correct ? 'CORRECT' : 'WRONG')
-      if (correct && roundStartedAtRef.current) {
-        setWinTimeSeconds((Date.now() - roundStartedAtRef.current) / 1000)
+      if (correct) {
+        // "How fast you guessed" means how little audio you needed to hear,
+        // not wall-clock time — that'd be mostly measuring how long you spent
+        // looking at the screen before pressing play.
+        const clipSeconds = currentStage / 1000
+        setWinClipSeconds(clipSeconds)
+        recordRound({ track: currentTrack, correct: true, clipSeconds })
+      } else if (failCount + 1 >= STAGES.length) {
+        recordRound({ track: currentTrack, correct: false, clipSeconds: null })
       }
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
     },
-    [currentTrack, over, busy],
+    [currentTrack, over, busy, currentStage, failCount],
   )
 
   const skip = useCallback(() => {
     if (!currentTrack || over || busy) return
     console.log('[guess] skip')
+    if (failCount + 1 >= STAGES.length) {
+      recordRound({ track: currentTrack, correct: false, clipSeconds: null })
+    }
     setAttempts((prev) => [...prev, { kind: 'skip', correct: false }])
-  }, [currentTrack, over, busy])
+  }, [currentTrack, over, busy, failCount])
 
   const startNewSong = useCallback(() => {
     if (!pool) return
@@ -154,12 +206,11 @@ export default function App() {
     setPlayError(null)
     setQuery('')
     setSearchResults([])
-    roundStartedAtRef.current = Date.now()
-    setWinTimeSeconds(null)
+    setWinClipSeconds(null)
   }, [pool, currentTrack])
 
-  if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
-    return <p>Fill in CLIENT_ID and PLAYLIST_ID in src/config.js before running this.</p>
+  if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || DEFAULT_PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
+    return <p>Fill in CLIENT_ID and DEFAULT_PLAYLIST_ID in src/config.js before running this.</p>
   }
 
   const readyToPlay = Boolean(deviceId && currentTrack && playerStatus === 'ready')
@@ -167,6 +218,26 @@ export default function App() {
   return (
     <div className="app">
       <h1>Heardle</h1>
+
+      <button
+        onClick={() => {
+          setStats(getStatsSummary())
+          setShowStats((v) => !v)
+        }}
+      >
+        Stats
+      </button>
+
+      {showStats && stats && (
+        <div className="stats-panel">
+          <p>Total songs guessed: {stats.totalGuessed}</p>
+          <p>
+            Average clip length guessed within:{' '}
+            {stats.avgClipSeconds != null ? `${stats.avgClipSeconds.toFixed(2)}s` : '—'}
+          </p>
+          <p>Most listened artist: {stats.mostListenedArtist ?? '—'}</p>
+        </div>
+      )}
 
       {auth.status !== 'authenticated' && (
         <section>
@@ -178,6 +249,28 @@ export default function App() {
 
       {auth.status === 'authenticated' && (
         <>
+          {playlistInfo && (
+            <section className="playlist-bar">
+              {playlistInfo.thumbnailUrl && <img src={playlistInfo.thumbnailUrl} alt="" className="playlist-thumb" />}
+              <span className="playlist-name">{playlistInfo.name}</span>
+              <button onClick={() => setShowSwitcher((v) => !v)}>Switch playlist</button>
+            </section>
+          )}
+
+          {showSwitcher && (
+            <ul className="playlist-switcher">
+              {!myPlaylists && <li className="hint">Loading your playlists…</li>}
+              {myPlaylists?.map((p) => (
+                <li key={p.id}>
+                  <button onClick={() => switchPlaylist(p.id)} disabled={p.id === activePlaylistId}>
+                    {p.thumbnailUrl && <img src={p.thumbnailUrl} alt="" className="thumb" />}
+                    <span>{p.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           {playerError && <p className="error">{playerError}</p>}
           {poolError && <p className="error">Could not load playlist: {poolError}</p>}
           {auth.status === 'authenticated' && playerStatus !== 'ready' && !playerError && (
@@ -255,7 +348,12 @@ export default function App() {
                     {(query.trim() ? searchResults : []).map((track) => (
                       <li key={track.id}>
                         <button onClick={() => submitGuess(track)} disabled={busy}>
-                          {track.name} — {track.artists}
+                          {track.thumbnailUrl && (
+                            <img src={track.thumbnailUrl} alt="" className="thumb" />
+                          )}
+                          <span>
+                            {track.name} — {track.artists}
+                          </span>
                         </button>
                       </li>
                     ))}
@@ -285,8 +383,11 @@ export default function App() {
         <div className="result-overlay">
           <div className="result-card">
             <h2 className={won ? 'win' : 'lose'}>{won ? 'Correct!' : 'Wrong!'}</h2>
-            {won && winTimeSeconds != null && (
-              <p className="win-time">Congrats — you guessed in {winTimeSeconds.toFixed(1)}s</p>
+            {won && winClipSeconds != null && (
+              <p className="win-time">Congrats — you guessed it in {winClipSeconds}s</p>
+            )}
+            {currentTrack.thumbnailUrl && (
+              <img src={currentTrack.thumbnailUrl} alt="" className="reveal-thumb" />
             )}
             <p>
               {currentTrack.name} — {currentTrack.artists}

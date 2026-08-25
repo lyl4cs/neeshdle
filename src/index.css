@@ -18,6 +18,64 @@ input {
   font: inherit;
 }
 
+.stats-panel {
+  margin: 0.75rem 0 1.25rem;
+  padding: 0.75rem 1rem;
+  background: #181818;
+  border: 1px solid #333;
+  border-radius: 8px;
+}
+
+.stats-panel p {
+  margin: 0.35rem 0;
+}
+
+.playlist-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.playlist-thumb {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.playlist-name {
+  font-weight: 600;
+  flex-grow: 1;
+}
+
+.playlist-switcher {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.playlist-switcher button {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  background: #181818;
+  border: none;
+  border-bottom: 1px solid #2a2a2a;
+  color: inherit;
+}
+
+.playlist-switcher button:disabled {
+  opacity: 0.5;
+}
+
 button {
   cursor: pointer;
 }
@@ -115,7 +173,9 @@ input {
 }
 
 .results button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   width: 100%;
   text-align: left;
   margin: 0.25rem 0;
@@ -124,6 +184,22 @@ input {
   border: 1px solid #333;
   color: inherit;
   border-radius: 6px;
+}
+
+.thumb {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.reveal-thumb {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 6px;
+  object-fit: cover;
+  margin: 0.5rem 0;
 }
 
 .result.win {

@@ -12,11 +12,14 @@ async function spotifyGet(accessToken, path) {
 }
 
 function toTrackSummary(track) {
+  const images = track.album?.images ?? []
   return {
     id: track.id,
     uri: track.uri,
     name: track.name,
     artists: track.artists.map((a) => a.name).join(', '),
+    // Smallest image (Spotify orders largest-first) — plenty for a result thumbnail.
+    thumbnailUrl: images[images.length - 1]?.url ?? null,
   }
 }
 
@@ -25,7 +28,26 @@ export async function fetchMe(accessToken) {
 }
 
 export async function fetchPlaylistMeta(accessToken, playlistId) {
-  return spotifyGet(accessToken, `playlists/${playlistId}?fields=name,public,collaborative,owner(id,display_name)`)
+  return spotifyGet(
+    accessToken,
+    `playlists/${playlistId}?fields=name,public,collaborative,owner(id,display_name),images`,
+  )
+}
+
+// The user's own playlists, for the "switch playlist" picker. Includes ones
+// they own and ones they follow — anything that'd show up in their library.
+export async function fetchMyPlaylists(accessToken) {
+  const playlists = []
+  let path = 'me/playlists?limit=50'
+  while (path) {
+    const data = await spotifyGet(accessToken, path)
+    for (const p of data.items) {
+      if (!p) continue
+      playlists.push({ id: p.id, name: p.name, thumbnailUrl: p.images?.[0]?.url ?? null })
+    }
+    path = data.next
+  }
+  return playlists
 }
 
 export async function fetchPlaylistTracks(accessToken, playlistId) {
