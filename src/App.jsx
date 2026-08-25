@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CLIENT_ID, PLAYLIST_ID, STAGES } from './config'
 import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
 import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
@@ -28,8 +28,7 @@ export default function App() {
   const [attempts, setAttempts] = useState([])
   const [busy, setBusy] = useState(false)
   const [playError, setPlayError] = useState(null)
-  const roundStartedAtRef = useRef(null)
-  const [winTimeSeconds, setWinTimeSeconds] = useState(null)
+  const [winClipSeconds, setWinClipSeconds] = useState(null)
   const [offsetMs, setOffsetMsState] = useState(0)
 
   const [query, setQuery] = useState('')
@@ -66,7 +65,6 @@ export default function App() {
         setPool(tracks)
         setCurrentTrack(dailyPick)
         setOffsetMsState(getIntroOffsetMs(dailyPick?.id))
-        roundStartedAtRef.current = Date.now()
       } catch (err) {
         if (cancelled) return
         console.error('[pool] failed to load playlist', err)
@@ -129,14 +127,15 @@ export default function App() {
       if (!currentTrack || over || busy) return
       const correct = isSameSong(track, currentTrack)
       console.log('[guess]', track.name, '-', track.artists, '->', correct ? 'CORRECT' : 'WRONG')
-      if (correct && roundStartedAtRef.current) {
-        setWinTimeSeconds((Date.now() - roundStartedAtRef.current) / 1000)
-      }
+      // "How fast you guessed" means how little audio you needed to hear,
+      // not wall-clock time — that'd be mostly measuring how long you spent
+      // looking at the screen before pressing play.
+      if (correct) setWinClipSeconds(currentStage / 1000)
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
     },
-    [currentTrack, over, busy],
+    [currentTrack, over, busy, currentStage],
   )
 
   const skip = useCallback(() => {
@@ -154,8 +153,7 @@ export default function App() {
     setPlayError(null)
     setQuery('')
     setSearchResults([])
-    roundStartedAtRef.current = Date.now()
-    setWinTimeSeconds(null)
+    setWinClipSeconds(null)
   }, [pool, currentTrack])
 
   if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
@@ -290,8 +288,8 @@ export default function App() {
         <div className="result-overlay">
           <div className="result-card">
             <h2 className={won ? 'win' : 'lose'}>{won ? 'Correct!' : 'Wrong!'}</h2>
-            {won && winTimeSeconds != null && (
-              <p className="win-time">Congrats — you guessed in {winTimeSeconds.toFixed(1)}s</p>
+            {won && winClipSeconds != null && (
+              <p className="win-time">Congrats — you guessed it in {winClipSeconds}s</p>
             )}
             {currentTrack.thumbnailUrl && (
               <img src={currentTrack.thumbnailUrl} alt="" className="reveal-thumb" />
