@@ -255,7 +255,12 @@ export default function App() {
                     {(query.trim() ? searchResults : []).map((track) => (
                       <li key={track.id}>
                         <button onClick={() => submitGuess(track)} disabled={busy}>
-                          {track.name} — {track.artists}
+                          {track.thumbnailUrl && (
+                            <img src={track.thumbnailUrl} alt="" className="thumb" />
+                          )}
+                          <span>
+                            {track.name} — {track.artists}
+                          </span>
                         </button>
                       </li>
                     ))}
@@ -287,6 +292,9 @@ export default function App() {
             <h2 className={won ? 'win' : 'lose'}>{won ? 'Correct!' : 'Wrong!'}</h2>
             {won && winTimeSeconds != null && (
               <p className="win-time">Congrats — you guessed in {winTimeSeconds.toFixed(1)}s</p>
+            )}
+            {currentTrack.thumbnailUrl && (
+              <img src={currentTrack.thumbnailUrl} alt="" className="reveal-thumb" />
             )}
             <p>
               {currentTrack.name} — {currentTrack.artists}

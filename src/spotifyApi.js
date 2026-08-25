@@ -12,11 +12,14 @@ async function spotifyGet(accessToken, path) {
 }
 
 function toTrackSummary(track) {
+  const images = track.album?.images ?? []
   return {
     id: track.id,
     uri: track.uri,
     name: track.name,
     artists: track.artists.map((a) => a.name).join(', '),
+    // Smallest image (Spotify orders largest-first) — plenty for a result thumbnail.
+    thumbnailUrl: images[images.length - 1]?.url ?? null,
   }
 }
 

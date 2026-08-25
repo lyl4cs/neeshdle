@@ -115,7 +115,9 @@ input {
 }
 
 .results button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   width: 100%;
   text-align: left;
   margin: 0.25rem 0;
@@ -124,6 +126,22 @@ input {
   border: 1px solid #333;
   color: inherit;
   border-radius: 6px;
+}
+
+.thumb {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.reveal-thumb {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 6px;
+  object-fit: cover;
+  margin: 0.5rem 0;
 }
 
 .result.win {
