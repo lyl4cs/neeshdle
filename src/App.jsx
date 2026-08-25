@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CLIENT_ID, DEFAULT_PLAYLIST_ID, STAGES } from './config'
+import { CheckIcon, NoteIcon, SkipIcon, XIcon } from './icons'
 import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
 import {
   fetchMe,
@@ -20,6 +21,35 @@ function formatClip(stage) {
   if (stage >= 1000) return `${stage / 1000}s`
   return `${stage}ms`
 }
+
+function formatStageShort(stage) {
+  if (stage === 'full') return 'FULL'
+  if (stage >= 1000) return `${stage / 1000}S`
+  return `${stage}MS`
+}
+
+// Real per-track waveforms aren't available (no audio analysis access — see
+// timing spike notes), so this is a fixed decorative shape, not real audio
+// data. Stage markers use a compressed early scale rather than literal
+// proportional time — a real song's 0.5s/2s/8s marks would all sit within
+// the first couple of percent of a literal timeline, indistinguishable.
+const WAVEFORM_HEIGHTS = [
+  16, 24, 12, 30, 20, 34, 14, 26, 22, 32, 18, 28, 10, 24, 36, 16, 20, 30, 14, 26, 18, 32, 22, 12,
+  28, 20, 34, 16, 24, 10, 30, 18, 26, 14, 22, 32,
+]
+const WAVEFORM_WIDTH = 340
+const WAVEFORM_HEIGHT = 64
+const BAR_SPACING = WAVEFORM_WIDTH / WAVEFORM_HEIGHTS.length
+
+function computeMarkerPositions(stages) {
+  const fullIndex = stages.indexOf('full')
+  const numericCount = fullIndex === -1 ? stages.length : fullIndex
+  const span = WAVEFORM_WIDTH * 0.6
+  const step = numericCount > 1 ? span / (numericCount - 1) : 0
+  return stages.map((stage, i) => (stage === 'full' ? WAVEFORM_WIDTH * 0.94 : WAVEFORM_WIDTH * 0.08 + i * step))
+}
+
+const MARKER_POSITIONS = computeMarkerPositions(STAGES)
 
 export default function App() {
   const auth = useSpotifyAuth()
@@ -222,111 +252,237 @@ export default function App() {
   }
 
   const readyToPlay = Boolean(deviceId && currentTrack && playerStatus === 'ready')
+  const unlockedX = over ? WAVEFORM_WIDTH : MARKER_POSITIONS[unlockedIndex]
 
   return (
     <div className="app">
-      <h1>Heardle</h1>
-
-      <button
-        onClick={() => {
-          setStats(getStatsSummary(userId))
-          setShowStats((v) => !v)
-        }}
-      >
-        Stats
-      </button>
-
-      {showStats && stats && (
-        <div className="stats-panel">
-          <p>Total songs guessed: {stats.totalGuessed}</p>
-          <p>
-            Average clip length guessed within:{' '}
-            {stats.avgClipSeconds != null ? `${stats.avgClipSeconds.toFixed(2)}s` : '—'}
-          </p>
-          <p>Most listened artist: {stats.mostListenedArtist ?? '—'}</p>
-        </div>
-      )}
+      <svg width="0" height="0" style={{ position: 'absolute' }}>
+        <filter id="rough" x="-20%" y="-20%" width="140%" height="140%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="3" seed="4" result="noise" />
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" />
+        </filter>
+      </svg>
 
       {auth.status !== 'authenticated' && (
-        <section>
+        <div className="receipt login-card">
+          <div className="grain" />
+          <div className="grain-coarse" />
+          <div className="grain-wash" />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            <NoteIcon size={34} />
+          </div>
+          <p className="stamp-font" style={{ fontSize: 24, margin: '0 0 14px' }}>
+            neeshdle
+          </p>
+          <p className="login-tagline">guess the song from your own playlist in as little audio as possible</p>
           {auth.error && <p className="error">{auth.error}</p>}
-          <button onClick={auth.login}>Log in with Spotify</button>
-          <p className="hint">Spotify Premium is required to play clips in the browser.</p>
-        </section>
+          <button className="login-btn" onClick={auth.login}>
+            Log in with Spotify
+          </button>
+          <p className="login-note">Premium required for in-browser playback</p>
+        </div>
       )}
 
       {auth.status === 'authenticated' && (
         <>
-          {playlistInfo && (
-            <section className="playlist-bar">
-              {playlistInfo.thumbnailUrl && <img src={playlistInfo.thumbnailUrl} alt="" className="playlist-thumb" />}
-              <span className="playlist-name">{playlistInfo.name}</span>
-              <button onClick={() => setShowSwitcher((v) => !v)}>Switch playlist</button>
-            </section>
+          {showStats && stats && (
+            <div className="stats-panel">
+              <p>Total songs guessed: {stats.totalGuessed}</p>
+              <p>
+                Average clip length guessed within:{' '}
+                {stats.avgClipSeconds != null ? `${stats.avgClipSeconds.toFixed(2)}s` : '—'}
+              </p>
+              <p>Most listened artist: {stats.mostListenedArtist ?? '—'}</p>
+            </div>
           )}
 
           {showSwitcher && (
             <ul className="playlist-switcher">
-              {!myPlaylists && <li className="hint">Loading your playlists…</li>}
+              {!myPlaylists && (
+                <li>
+                  <span className="hint" style={{ padding: '10px 14px', display: 'block' }}>
+                    Loading your playlists…
+                  </span>
+                </li>
+              )}
               {myPlaylists?.map((p) => (
                 <li key={p.id}>
                   <button onClick={() => switchPlaylist(p.id)} disabled={p.id === activePlaylistId}>
-                    {p.thumbnailUrl && <img src={p.thumbnailUrl} alt="" className="thumb" />}
-                    <span>{p.name}</span>
+                    {p.thumbnailUrl ? (
+                      <img src={p.thumbnailUrl} alt="" className="thumb" />
+                    ) : (
+                      <div className="thumb" />
+                    )}
+                    <span style={{ flex: 1 }}>{p.name}</span>
+                    {p.id === activePlaylistId && (
+                      <span className="hint" style={{ color: '#2f5233' }}>
+                        ACTIVE
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
             </ul>
           )}
 
-          {playerError && <p className="error">{playerError}</p>}
-          {poolError && <p className="error">Could not load playlist: {poolError}</p>}
-          {auth.status === 'authenticated' && playerStatus !== 'ready' && !playerError && (
-            <p>Connecting player…</p>
-          )}
-          {!poolError && !pool && <p>Loading a track…</p>}
+          <div className="receipt">
+            <div className="grain" />
+            <div className="grain-coarse" />
+            <div className="grain-wash" />
 
-          {readyToPlay && (
-            <section className="game">
-              <ol className="slots">
-                {STAGES.map((stage, i) => {
-                  const attempt = attempts[i]
-                  let state = 'empty'
-                  if (attempt?.correct) state = 'correct'
-                  else if (attempt?.kind === 'skip') state = 'skip'
-                  else if (attempt) state = 'wrong'
-                  else if (i === unlockedIndex && !over) state = 'current'
-                  return (
-                    <li key={stage} className={state} title={formatClip(stage)}>
-                      {i + 1}
-                    </li>
-                  )
-                })}
-              </ol>
-
-              <p className="clip-label">
-                {over
-                  ? won
-                    ? 'You got it — play the full track'
-                    : 'Out of guesses — play the answer'
-                  : `Clip ${unlockedIndex + 1} of ${STAGES.length}: ${formatClip(currentStage)}`}
-              </p>
-
-              <div className="actions">
-                <button onClick={playClip} disabled={busy}>
-                  {busy ? 'Playing…' : over ? 'Play song' : 'Play clip'}
-                </button>
-                {!over && (
-                  <button onClick={skip} disabled={busy}>
-                    Skip
-                  </button>
-                )}
+            <div
+              style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', marginBottom: 4 }}
+            >
+              <div className="wordmark">
+                <NoteIcon />
+                <span className="stamp-font">neeshdle</span>
               </div>
-              {playError && <p className="error">{playError}</p>}
+              <span className="btn-bracket" style={{ color: '#a8402f', fontSize: 11, opacity: 0.8, margin: '0 12px' }}>
+                [ lyl4cs ]
+              </span>
+              <div className="header-actions" style={{ justifySelf: 'end' }}>
+                <button
+                  className="btn-bracket"
+                  onClick={() => {
+                    setStats(getStatsSummary(userId))
+                    setShowStats((v) => !v)
+                  }}
+                >
+                  [ STATS ]
+                </button>
+                <button className="btn-bracket" onClick={() => setShowSwitcher((v) => !v)}>
+                  [ PLAYLIST ]
+                </button>
+              </div>
+            </div>
+            <p className="label" style={{ textAlign: 'center', marginBottom: 18 }}>
+              guess it from your own playlist
+            </p>
 
-              <div className="offset-control">
-                <label>
-                  Skip silent intro (s):{' '}
+            <hr className="divider" style={{ marginTop: 0 }} />
+
+            {playlistInfo && (
+              <div className="row playlist-bar">
+                {playlistInfo.thumbnailUrl ? (
+                  <img src={playlistInfo.thumbnailUrl} alt="" className="thumb" style={{ width: 30, height: 30 }} />
+                ) : (
+                  <div className="thumb" style={{ width: 30, height: 30 }} />
+                )}
+                <span className="playlist-name">{playlistInfo.name}</span>
+                <span className="fill" />
+                <span className="hint">{pool ? `${pool.length} tracks` : ''}</span>
+              </div>
+            )}
+
+            {playerError && <p className="error">{playerError}</p>}
+            {poolError && <p className="error">Could not load playlist: {poolError}</p>}
+            {playerStatus !== 'ready' && !playerError && <p className="hint">Connecting player…</p>}
+            {!poolError && !pool && <p className="hint">Loading a track…</p>}
+
+            {readyToPlay && (
+              <>
+                <div className="waveform">
+                  <svg
+                    viewBox={`0 0 ${WAVEFORM_WIDTH} ${WAVEFORM_HEIGHT}`}
+                    preserveAspectRatio="none"
+                    style={{ display: 'block', width: '100%', height: WAVEFORM_HEIGHT }}
+                  >
+                    <defs>
+                      <clipPath id="wfUnlocked">
+                        <rect x="0" y="0" width={unlockedX} height={WAVEFORM_HEIGHT} />
+                      </clipPath>
+                    </defs>
+                    <g fill="#c9c5b6">
+                      {WAVEFORM_HEIGHTS.map((h, i) => (
+                        <rect
+                          key={i}
+                          x={i * BAR_SPACING}
+                          y={(WAVEFORM_HEIGHT - h) / 2}
+                          width={BAR_SPACING * 0.55}
+                          height={h}
+                        />
+                      ))}
+                    </g>
+                    <g fill="#1a1a1a" clipPath="url(#wfUnlocked)">
+                      {WAVEFORM_HEIGHTS.map((h, i) => (
+                        <rect
+                          key={i}
+                          x={i * BAR_SPACING}
+                          y={(WAVEFORM_HEIGHT - h) / 2}
+                          width={BAR_SPACING * 0.55}
+                          height={h}
+                        />
+                      ))}
+                    </g>
+                  </svg>
+
+                  {STAGES.map((stage, i) => {
+                    const attempt = attempts[i]
+                    let state = i <= unlockedIndex ? 'empty' : 'locked'
+                    if (attempt?.correct) state = 'correct'
+                    else if (attempt?.kind === 'skip') state = 'skip'
+                    else if (attempt) state = 'wrong'
+                    else if (i === unlockedIndex && !over) state = 'current'
+                    const leftPct = (MARKER_POSITIONS[i] / WAVEFORM_WIDTH) * 100
+                    return (
+                      <div key={stage} style={{ position: 'absolute', left: `${leftPct}%`, top: 0, bottom: 0 }}>
+                        <div className="wf-mark" />
+                        <div className={`wf-badge ${state === 'current' ? 'current' : ''} ${state === 'locked' ? 'locked' : ''}`}>
+                          {state === 'correct' && <CheckIcon />}
+                          {state === 'wrong' && <XIcon />}
+                          {state === 'skip' && <SkipIcon />}
+                        </div>
+                        <div className={`wf-time ${i === unlockedIndex && !over ? 'active' : ''}`}>
+                          {formatStageShort(stage)}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <p className="clip-label">
+                  {over
+                    ? won
+                      ? 'You got it — play the full track'
+                      : 'Out of guesses — play the answer'
+                    : `Clip ${unlockedIndex + 1} of ${STAGES.length}: ${formatClip(currentStage)}`}
+                </p>
+
+                <div className="actions">
+                  <button className="stamp-btn play-btn" onClick={playClip} disabled={busy}>
+                    <svg width="84" height="84" viewBox="0 0 84 84" style={{ position: 'absolute' }}>
+                      <path
+                        d="M40,4 C56,2 74,8 80,26 C86,42 78,60 64,72 C50,84 30,86 16,76 C2,66 -2,46 4,30 C10,14 24,6 40,4 Z"
+                        fill="#1a1a1a"
+                        style={{ filter: 'url(#rough)', transform: 'rotate(-5deg)', transformOrigin: 'center' }}
+                      />
+                    </svg>
+                    <span className="label-overlay" style={{ color: '#f4f1e6', fontSize: 12, transform: 'rotate(-5deg)' }}>
+                      {busy ? 'PLAYING…' : over ? '▶ PLAY SONG' : '▶ PLAY'}
+                    </span>
+                  </button>
+                  {!over && (
+                    <button className="stamp-btn skip-btn" onClick={skip} disabled={busy}>
+                      <svg width="96" height="52" viewBox="0 0 96 52" style={{ position: 'absolute' }}>
+                        <path
+                          d="M6,8 C30,2 66,4 90,7 C94,18 93,34 90,45 C64,50 28,49 5,44 C2,32 3,18 6,8 Z"
+                          fill="none"
+                          stroke="#1a1a1a"
+                          strokeWidth="2.5"
+                          style={{ filter: 'url(#rough)', transform: 'rotate(3deg)', transformOrigin: 'center' }}
+                        />
+                      </svg>
+                      <span className="label-overlay" style={{ fontSize: 13, transform: 'rotate(3deg)' }}>
+                        SKIP →
+                      </span>
+                    </button>
+                  )}
+                </div>
+                {playError && <p className="error">{playError}</p>}
+
+                <div className="row offset-control">
+                  <span className="label">skip silent intro</span>
+                  <span className="fill" />
                   <input
                     type="number"
                     min="0"
@@ -339,68 +495,141 @@ export default function App() {
                       if (currentTrack) setIntroOffsetMs(currentTrack.id, ms)
                     }}
                   />
-                </label>
-              </div>
+                  <span className="hint">s</span>
+                </div>
 
-              {!over && (
-                <>
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search for a song"
-                    disabled={busy}
-                    autoComplete="off"
-                  />
-                  {searchBusy && <p className="hint">Searching…</p>}
-                  <ul className="results">
-                    {(query.trim() ? searchResults : []).map((track) => (
-                      <li key={track.id}>
-                        <button onClick={() => submitGuess(track)} disabled={busy}>
-                          {track.thumbnailUrl && (
-                            <img src={track.thumbnailUrl} alt="" className="thumb" />
+                {!over && (
+                  <>
+                    <div className="label term-label">enter guess</div>
+                    <div className="term-input">
+                      <span>&gt;</span>
+                      <input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="search for a song"
+                        disabled={busy}
+                        autoComplete="off"
+                      />
+                    </div>
+                    {searchBusy && <p className="hint">searching…</p>}
+                    <ul className="results">
+                      {(query.trim() ? searchResults : []).map((track) => (
+                        <li key={track.id}>
+                          <button onClick={() => submitGuess(track)} disabled={busy}>
+                            {track.thumbnailUrl ? (
+                              <img src={track.thumbnailUrl} alt="" className="thumb" />
+                            ) : (
+                              <div className="thumb" />
+                            )}
+                            <div>
+                              <div className="result-name">{track.name}</div>
+                              <div className="result-artist">{track.artists}</div>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+
+                {attempts.length > 0 && (
+                  <>
+                    <hr className="divider" />
+                    <p className="label" style={{ marginBottom: 10 }}>
+                      history
+                    </p>
+                    <ul className="history">
+                      {attempts.map((attempt, i) => (
+                        <li key={i} className="result-line">
+                          {attempt.kind === 'skip' ? (
+                            <>
+                              <span className="mark-skip">—</span> Skipped{' '}
+                              <span className="stage-dur">({formatClip(STAGES[i])})</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className={attempt.correct ? '' : 'mark-wrong'}>
+                                {attempt.correct ? '✓' : '✕'}
+                              </span>{' '}
+                              {attempt.track.name} — {attempt.track.artists}
+                            </>
                           )}
-                          <span>
-                            {track.name} — {track.artists}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
 
-              {attempts.length > 0 && (
-                <ul className="history">
-                  {attempts.map((attempt, i) => (
-                    <li key={i}>
-                      {attempt.kind === 'skip'
-                        ? `Skipped (${formatClip(STAGES[i])})`
-                        : `${attempt.track.name} — ${attempt.track.artists}: ${
-                            attempt.correct ? 'correct' : 'wrong'
-                          }`}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
+                <div className="barcode" />
+                <p className="label" style={{ textAlign: 'center' }}>
+                  thank you for playing
+                </p>
+              </>
+            )}
+          </div>
         </>
       )}
 
       {over && currentTrack && (
         <div className="result-overlay">
-          <div className="result-card">
-            <h2 className={won ? 'win' : 'lose'}>{won ? 'Correct!' : 'Wrong!'}</h2>
-            {won && winClipSeconds != null && (
-              <p className="win-time">Congrats — you guessed it in {winClipSeconds}s</p>
-            )}
-            {currentTrack.thumbnailUrl && (
+          <div className="receipt result-card">
+            <div className="grain" />
+            <div className="grain-coarse" />
+            <div className="grain-wash" />
+
+            <div className="stamp-wrap">
+              <svg width="190" height="78" viewBox="0 0 190 78" style={{ position: 'absolute' }}>
+                <rect
+                  x="6"
+                  y="6"
+                  width="178"
+                  height="66"
+                  fill="none"
+                  stroke={won ? '#2f5233' : '#8b2c1a'}
+                  strokeWidth="3"
+                  style={{ filter: 'url(#rough)', transform: 'rotate(-6deg)', transformOrigin: 'center' }}
+                />
+              </svg>
+              <div className={`stamp-label ${won ? '' : 'lose'}`}>{won ? 'CORRECT' : 'WRONG'}</div>
+            </div>
+            {won && winClipSeconds != null && <p className="win-time">guessed in {winClipSeconds}s of audio</p>}
+
+            {currentTrack.thumbnailUrl ? (
               <img src={currentTrack.thumbnailUrl} alt="" className="reveal-thumb" />
+            ) : (
+              <div className="reveal-thumb" />
             )}
-            <p>
-              {currentTrack.name} — {currentTrack.artists}
-            </p>
-            <button onClick={startNewSong}>New song</button>
+            <p className="reveal-name">{currentTrack.name}</p>
+            <p className="reveal-artist">{currentTrack.artists}</p>
+
+            <div className="reveal-actions">
+              <button className="stamp-btn new-song-btn" onClick={startNewSong}>
+                <svg width="120" height="46" viewBox="0 0 120 46" style={{ position: 'absolute' }}>
+                  <path
+                    d="M6,6 C40,2 82,3 114,6 C117,16 116,30 114,40 C80,44 38,43 6,39 C3,28 4,16 6,6 Z"
+                    fill="#1a1a1a"
+                    style={{ filter: 'url(#rough)', transform: 'rotate(-3deg)', transformOrigin: 'center' }}
+                  />
+                </svg>
+                <span className="label-overlay" style={{ color: '#f4f1e6', transform: 'rotate(-3deg)' }}>
+                  NEW SONG
+                </span>
+              </button>
+              <button className="stamp-btn play-full-btn" onClick={playClip} disabled={busy}>
+                <svg width="150" height="46" viewBox="0 0 150 46" style={{ position: 'absolute' }}>
+                  <path
+                    d="M6,7 C50,2 104,3 144,7 C147,17 146,30 144,39 C100,44 46,43 6,38 C3,27 4,16 6,7 Z"
+                    fill="none"
+                    stroke="#1a1a1a"
+                    strokeWidth="2.5"
+                    style={{ filter: 'url(#rough)', transform: 'rotate(2deg)', transformOrigin: 'center' }}
+                  />
+                </svg>
+                <span className="label-overlay" style={{ transform: 'rotate(2deg)' }}>
+                  {busy ? 'PLAYING…' : 'PLAY FULL TRACK'}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}
