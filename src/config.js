@@ -19,6 +19,6 @@ export const SCOPES = [
 // Pool of candidate tracks the daily pick is drawn from — a Spotify playlist
 // you curate. Grab the ID from the playlist's share link:
 // open.spotify.com/playlist/{THIS_PART}?si=...
-export const PLAYLIST_ID = 'YOUR_PLAYLIST_ID'
+export const PLAYLIST_ID = '5GWZT5ZNU5M5fe1hGxQwQt'
 
 export const STAGES = [500, 2000, 8000, 'full']
