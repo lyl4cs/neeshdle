@@ -9,6 +9,7 @@ import {
   fetchPlaylistTracks,
   searchTracks,
 } from './spotifyApi'
+import { getStatsSummary, recordRound } from './stats'
 import { playStage } from './timing'
 import { isSameSong, prioritizePoolMatches } from './trackMatch'
 import { useSpotifyAuth } from './useSpotifyAuth'
@@ -31,6 +32,8 @@ export default function App() {
   const [playlistInfo, setPlaylistInfo] = useState(null)
   const [myPlaylists, setMyPlaylists] = useState(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
+  const [showStats, setShowStats] = useState(false)
+  const [stats, setStats] = useState(null)
 
   const [pool, setPool] = useState(null)
   const [currentTrack, setCurrentTrack] = useState(null)
@@ -168,22 +171,31 @@ export default function App() {
       if (!currentTrack || over || busy) return
       const correct = isSameSong(track, currentTrack)
       console.log('[guess]', track.name, '-', track.artists, '->', correct ? 'CORRECT' : 'WRONG')
-      // "How fast you guessed" means how little audio you needed to hear,
-      // not wall-clock time — that'd be mostly measuring how long you spent
-      // looking at the screen before pressing play.
-      if (correct) setWinClipSeconds(currentStage / 1000)
+      if (correct) {
+        // "How fast you guessed" means how little audio you needed to hear,
+        // not wall-clock time — that'd be mostly measuring how long you spent
+        // looking at the screen before pressing play.
+        const clipSeconds = currentStage / 1000
+        setWinClipSeconds(clipSeconds)
+        recordRound({ track: currentTrack, correct: true, clipSeconds })
+      } else if (failCount + 1 >= STAGES.length) {
+        recordRound({ track: currentTrack, correct: false, clipSeconds: null })
+      }
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
     },
-    [currentTrack, over, busy, currentStage],
+    [currentTrack, over, busy, currentStage, failCount],
   )
 
   const skip = useCallback(() => {
     if (!currentTrack || over || busy) return
     console.log('[guess] skip')
+    if (failCount + 1 >= STAGES.length) {
+      recordRound({ track: currentTrack, correct: false, clipSeconds: null })
+    }
     setAttempts((prev) => [...prev, { kind: 'skip', correct: false }])
-  }, [currentTrack, over, busy])
+  }, [currentTrack, over, busy, failCount])
 
   const startNewSong = useCallback(() => {
     if (!pool) return
@@ -206,6 +218,26 @@ export default function App() {
   return (
     <div className="app">
       <h1>Heardle</h1>
+
+      <button
+        onClick={() => {
+          setStats(getStatsSummary())
+          setShowStats((v) => !v)
+        }}
+      >
+        Stats
+      </button>
+
+      {showStats && stats && (
+        <div className="stats-panel">
+          <p>Total songs guessed: {stats.totalGuessed}</p>
+          <p>
+            Average clip length guessed within:{' '}
+            {stats.avgClipSeconds != null ? `${stats.avgClipSeconds.toFixed(2)}s` : '—'}
+          </p>
+          <p>Most listened artist: {stats.mostListenedArtist ?? '—'}</p>
+        </div>
+      )}
 
       {auth.status !== 'authenticated' && (
         <section>
