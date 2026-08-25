@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CLIENT_ID, DEFAULT_PLAYLIST_ID, STAGES } from './config'
-import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
 import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
 import {
   fetchMe,
@@ -12,6 +11,7 @@ import {
 import { getStatsSummary, recordRound } from './stats'
 import { playStage } from './timing'
 import { isSameSong, prioritizePoolMatches } from './trackMatch'
+import { pickUnplayedTrack } from './trackPicker'
 import { useSpotifyAuth } from './useSpotifyAuth'
 import { useSpotifyPlayer } from './useSpotifyPlayer'
 
@@ -27,6 +27,11 @@ export default function App() {
     auth.getValidAccessToken,
     auth.status === 'authenticated',
   )
+
+  const [userId, setUserId] = useState(null)
+  // Tracks played this page session so a given song won't repeat until a
+  // refresh/re-login clears it — intentionally in-memory only, not persisted.
+  const playedTrackIdsRef = useRef(new Set())
 
   const [activePlaylistId, setActivePlaylistId] = useState(DEFAULT_PLAYLIST_ID)
   const [playlistInfo, setPlaylistInfo] = useState(null)
@@ -64,6 +69,7 @@ export default function App() {
         const accessToken = await auth.getValidAccessToken()
         const me = await fetchMe(accessToken)
         console.log('[pool] logged in as', me.id, '-', me.display_name)
+        if (!cancelled) setUserId(me.id)
         const playlists = await fetchMyPlaylists(accessToken)
         if (!cancelled) setMyPlaylists(playlists)
       } catch (err) {
@@ -95,10 +101,11 @@ export default function App() {
 
         const tracks = await fetchPlaylistTracks(accessToken, activePlaylistId)
         if (cancelled) return
-        const dailyPick = pickDailyTrack(tracks)
+        const pick = pickUnplayedTrack(tracks, playedTrackIdsRef.current)
+        if (pick) playedTrackIdsRef.current.add(pick.id)
         setPool(tracks)
-        setCurrentTrack(dailyPick)
-        setOffsetMsState(getIntroOffsetMs(dailyPick?.id))
+        setCurrentTrack(pick)
+        setOffsetMsState(getIntroOffsetMs(pick?.id))
         setAttempts([])
         setPlayError(null)
         setQuery('')
@@ -177,29 +184,30 @@ export default function App() {
         // looking at the screen before pressing play.
         const clipSeconds = currentStage / 1000
         setWinClipSeconds(clipSeconds)
-        recordRound({ track: currentTrack, correct: true, clipSeconds })
+        recordRound(userId, { track: currentTrack, correct: true, clipSeconds })
       } else if (failCount + 1 >= STAGES.length) {
-        recordRound({ track: currentTrack, correct: false, clipSeconds: null })
+        recordRound(userId, { track: currentTrack, correct: false, clipSeconds: null })
       }
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
     },
-    [currentTrack, over, busy, currentStage, failCount],
+    [currentTrack, over, busy, currentStage, failCount, userId],
   )
 
   const skip = useCallback(() => {
     if (!currentTrack || over || busy) return
     console.log('[guess] skip')
     if (failCount + 1 >= STAGES.length) {
-      recordRound({ track: currentTrack, correct: false, clipSeconds: null })
+      recordRound(userId, { track: currentTrack, correct: false, clipSeconds: null })
     }
     setAttempts((prev) => [...prev, { kind: 'skip', correct: false }])
-  }, [currentTrack, over, busy, failCount])
+  }, [currentTrack, over, busy, failCount, userId])
 
   const startNewSong = useCallback(() => {
     if (!pool) return
-    const nextTrack = pickRandomTrack(pool, currentTrack?.id)
+    const nextTrack = pickUnplayedTrack(pool, playedTrackIdsRef.current)
+    if (nextTrack) playedTrackIdsRef.current.add(nextTrack.id)
     setCurrentTrack(nextTrack)
     setOffsetMsState(getIntroOffsetMs(nextTrack?.id))
     setAttempts([])
@@ -207,7 +215,7 @@ export default function App() {
     setQuery('')
     setSearchResults([])
     setWinClipSeconds(null)
-  }, [pool, currentTrack])
+  }, [pool])
 
   if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || DEFAULT_PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
     return <p>Fill in CLIENT_ID and DEFAULT_PLAYLIST_ID in src/config.js before running this.</p>
@@ -221,7 +229,7 @@ export default function App() {
 
       <button
         onClick={() => {
-          setStats(getStatsSummary())
+          setStats(getStatsSummary(userId))
           setShowStats((v) => !v)
         }}
       >
@@ -276,7 +284,7 @@ export default function App() {
           {auth.status === 'authenticated' && playerStatus !== 'ready' && !playerError && (
             <p>Connecting player…</p>
           )}
-          {!poolError && !pool && <p>Loading today&apos;s track…</p>}
+          {!poolError && !pool && <p>Loading a track…</p>}
 
           {readyToPlay && (
             <section className="game">

@@ -1,11 +1,16 @@
-// Lifetime stats across all rounds, persisted locally. One entry gets
-// recorded per finished round (win or loss) — see recordRound.
+// Lifetime stats, one bucket per Spotify user id — there's no backend here,
+// so "attached to the user" means keyed by their account id in localStorage
+// rather than one shared bucket for whoever's using this browser. One entry
+// gets recorded per finished round (win or loss) — see recordRound.
 
-const STORAGE_KEY = 'heardle_stats_v1'
+function storageKey(userId) {
+  return `heardle_stats_v1_${userId}`
+}
 
-function readRounds() {
+function readRounds(userId) {
+  if (!userId) return []
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? []
+    return JSON.parse(localStorage.getItem(storageKey(userId))) ?? []
   } catch {
     return []
   }
@@ -15,8 +20,9 @@ function primaryArtist(artists) {
   return artists?.split(',')[0]?.trim() ?? null
 }
 
-export function recordRound({ track, correct, clipSeconds }) {
-  const rounds = readRounds()
+export function recordRound(userId, { track, correct, clipSeconds }) {
+  if (!userId) return
+  const rounds = readRounds(userId)
   rounds.push({
     trackName: track.name,
     artist: primaryArtist(track.artists),
@@ -24,11 +30,11 @@ export function recordRound({ track, correct, clipSeconds }) {
     clipSeconds: correct ? clipSeconds : null,
     timestamp: Date.now(),
   })
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rounds))
+  localStorage.setItem(storageKey(userId), JSON.stringify(rounds))
 }
 
-export function getStatsSummary() {
-  const rounds = readRounds()
+export function getStatsSummary(userId) {
+  const rounds = readRounds(userId)
   const wins = rounds.filter((r) => r.correct)
 
   const artistCounts = {}
