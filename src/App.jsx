@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CLIENT_ID, PLAYLIST_ID, STAGES } from './config'
 import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
 import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
@@ -28,7 +28,7 @@ export default function App() {
   const [attempts, setAttempts] = useState([])
   const [busy, setBusy] = useState(false)
   const [playError, setPlayError] = useState(null)
-  const [roundStartedAt, setRoundStartedAt] = useState(null)
+  const roundStartedAtRef = useRef(null)
   const [winTimeSeconds, setWinTimeSeconds] = useState(null)
   const [offsetMs, setOffsetMsState] = useState(0)
 
@@ -66,7 +66,7 @@ export default function App() {
         setPool(tracks)
         setCurrentTrack(dailyPick)
         setOffsetMsState(getIntroOffsetMs(dailyPick?.id))
-        setRoundStartedAt(Date.now())
+        roundStartedAtRef.current = Date.now()
       } catch (err) {
         if (cancelled) return
         console.error('[pool] failed to load playlist', err)
@@ -129,12 +129,14 @@ export default function App() {
       if (!currentTrack || over || busy) return
       const correct = isSameSong(track, currentTrack)
       console.log('[guess]', track.name, '-', track.artists, '->', correct ? 'CORRECT' : 'WRONG')
-      if (correct && roundStartedAt) setWinTimeSeconds((Date.now() - roundStartedAt) / 1000)
+      if (correct && roundStartedAtRef.current) {
+        setWinTimeSeconds((Date.now() - roundStartedAtRef.current) / 1000)
+      }
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
     },
-    [currentTrack, over, busy, roundStartedAt],
+    [currentTrack, over, busy],
   )
 
   const skip = useCallback(() => {
@@ -152,7 +154,7 @@ export default function App() {
     setPlayError(null)
     setQuery('')
     setSearchResults([])
-    setRoundStartedAt(Date.now())
+    roundStartedAtRef.current = Date.now()
     setWinTimeSeconds(null)
   }, [pool, currentTrack])
 
