@@ -2,7 +2,14 @@
 
 body {
   margin: 0;
-  background: #d9d5c7;
+  min-height: 100vh;
+  background-color: #c7c2b0;
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.18), transparent 60%),
+    radial-gradient(ellipse at 50% 100%, rgba(0, 0, 0, 0.16), transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.028' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23b)' opacity='0.4'/%3E%3C/svg%3E");
+  background-size: cover, cover, 300px 300px;
+  background-attachment: fixed;
   color: #1a1a1a;
   font-family: 'Courier Prime', 'Special Elite', monospace;
 }
@@ -52,7 +59,7 @@ a:hover {
 .receipt {
   position: relative;
   width: 100%;
-  max-width: 480px;
+  max-width: 400px;
   margin: 0 auto;
   background: #f4f1e6;
   color: #1a1a1a;
@@ -460,7 +467,7 @@ a:hover {
 
 .stats-panel {
   margin: 0 auto 22px;
-  max-width: 480px;
+  max-width: 360px;
   padding: 18px 20px;
   background: #f4f1e6;
   border: 1px solid #b8b4a3;
@@ -472,7 +479,7 @@ a:hover {
 }
 
 .login-card {
-  max-width: 380px;
+  max-width: 320px;
   margin: 0 auto;
   padding: 40px 30px;
   background: #f4f1e6;
@@ -579,15 +586,15 @@ a:hover {
 .reveal-actions {
   display: flex;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .new-song-btn {
-  width: 120px;
+  width: 112px;
   height: 46px;
 }
 
 .play-full-btn {
-  width: 150px;
+  width: 140px;
   height: 46px;
 }

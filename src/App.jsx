@@ -330,17 +330,12 @@ export default function App() {
             <div className="grain-coarse" />
             <div className="grain-wash" />
 
-            <div
-              style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', marginBottom: 4 }}
-            >
+            <div className="row" style={{ alignItems: 'center', marginBottom: 0 }}>
               <div className="wordmark">
                 <NoteIcon />
                 <span className="stamp-font">neeshdle</span>
               </div>
-              <span className="btn-bracket" style={{ color: '#a8402f', fontSize: 11, opacity: 0.8, margin: '0 12px' }}>
-                [ lyl4cs ]
-              </span>
-              <div className="header-actions" style={{ justifySelf: 'end' }}>
+              <div className="header-actions">
                 <button
                   className="btn-bracket"
                   onClick={() => {
@@ -355,6 +350,9 @@ export default function App() {
                 </button>
               </div>
             </div>
+            <p className="btn-bracket" style={{ textAlign: 'center', color: '#a8402f', fontSize: 11, opacity: 0.8, margin: '-6px 0 10px' }}>
+              [ lyl4cs ]
+            </p>
             <p className="label" style={{ textAlign: 'center', marginBottom: 18 }}>
               guess it from your own playlist
             </p>
@@ -604,9 +602,9 @@ export default function App() {
 
             <div className="reveal-actions">
               <button className="stamp-btn new-song-btn" onClick={startNewSong}>
-                <svg width="120" height="46" viewBox="0 0 120 46" style={{ position: 'absolute' }}>
+                <svg width="112" height="46" viewBox="0 0 112 46" style={{ position: 'absolute' }}>
                   <path
-                    d="M6,6 C40,2 82,3 114,6 C117,16 116,30 114,40 C80,44 38,43 6,39 C3,28 4,16 6,6 Z"
+                    d="M6,6 C38,2 76,3 106,6 C109,16 108,30 106,40 C74,44 36,43 6,39 C3,28 4,16 6,6 Z"
                     fill="#1a1a1a"
                     style={{ filter: 'url(#rough)', transform: 'rotate(-3deg)', transformOrigin: 'center' }}
                   />
@@ -616,9 +614,9 @@ export default function App() {
                 </span>
               </button>
               <button className="stamp-btn play-full-btn" onClick={playClip} disabled={busy}>
-                <svg width="150" height="46" viewBox="0 0 150 46" style={{ position: 'absolute' }}>
+                <svg width="140" height="46" viewBox="0 0 140 46" style={{ position: 'absolute' }}>
                   <path
-                    d="M6,7 C50,2 104,3 144,7 C147,17 146,30 144,39 C100,44 46,43 6,38 C3,27 4,16 6,7 Z"
+                    d="M6,7 C46,2 96,3 134,7 C137,17 136,30 134,39 C92,44 42,43 6,38 C3,27 4,16 6,7 Z"
                     fill="none"
                     stroke="#1a1a1a"
                     strokeWidth="2.5"
