@@ -350,7 +350,7 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <p className="btn-bracket" style={{ textAlign: 'center', color: '#a8402f', fontSize: 11, opacity: 0.8, margin: '-6px 0 10px' }}>
+            <p className="btn-bracket" style={{ textAlign: 'left', paddingLeft: 32, color: '#a8402f', fontSize: 11, opacity: 0.8, margin: '4px 0 14px' }}>
               [ lyl4cs ]
             </p>
             <p className="label" style={{ textAlign: 'center', marginBottom: 18 }}>
