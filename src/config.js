@@ -18,9 +18,10 @@ export const SCOPES = [
   'playlist-read-collaborative',
 ].join(' ')
 
-// Pool of candidate tracks the daily pick is drawn from — a Spotify playlist
-// you curate. Grab the ID from the playlist's share link:
-// open.spotify.com/playlist/{THIS_PART}?si=...
-export const PLAYLIST_ID = '6b8PF1cqmjgFu7xMBfEZxL'
+// Starting playlist — a Spotify playlist you curate. Grab the ID from the
+// playlist's share link: open.spotify.com/playlist/{THIS_PART}?si=...
+// The in-app "Switch playlist" picker lets you change this at runtime, so
+// this is just what loads first.
+export const DEFAULT_PLAYLIST_ID = '6b8PF1cqmjgFu7xMBfEZxL'
 
 export const STAGES = [500, 2000, 8000, 'full']

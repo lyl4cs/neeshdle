@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CLIENT_ID, PLAYLIST_ID, STAGES } from './config'
+import { CLIENT_ID, DEFAULT_PLAYLIST_ID, STAGES } from './config'
 import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
 import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
-import { fetchMe, fetchPlaylistMeta, fetchPlaylistTracks, searchTracks } from './spotifyApi'
+import {
+  fetchMe,
+  fetchMyPlaylists,
+  fetchPlaylistMeta,
+  fetchPlaylistTracks,
+  searchTracks,
+} from './spotifyApi'
 import { playStage } from './timing'
 import { isSameSong, prioritizePoolMatches } from './trackMatch'
 import { useSpotifyAuth } from './useSpotifyAuth'
@@ -20,6 +26,11 @@ export default function App() {
     auth.getValidAccessToken,
     auth.status === 'authenticated',
   )
+
+  const [activePlaylistId, setActivePlaylistId] = useState(DEFAULT_PLAYLIST_ID)
+  const [playlistInfo, setPlaylistInfo] = useState(null)
+  const [myPlaylists, setMyPlaylists] = useState(null)
+  const [showSwitcher, setShowSwitcher] = useState(false)
 
   const [pool, setPool] = useState(null)
   const [currentTrack, setCurrentTrack] = useState(null)
@@ -45,37 +56,67 @@ export default function App() {
   useEffect(() => {
     if (auth.status !== 'authenticated') return
     let cancelled = false
-    async function loadPool() {
+    async function loadMyPlaylists() {
+      try {
+        const accessToken = await auth.getValidAccessToken()
+        const me = await fetchMe(accessToken)
+        console.log('[pool] logged in as', me.id, '-', me.display_name)
+        const playlists = await fetchMyPlaylists(accessToken)
+        if (!cancelled) setMyPlaylists(playlists)
+      } catch (err) {
+        console.error('[pool] failed to load your playlists', err)
+      }
+    }
+    loadMyPlaylists()
+    return () => {
+      cancelled = true
+    }
+  }, [auth.status, auth.getValidAccessToken])
+
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    let cancelled = false
+    async function loadPlaylist() {
+      setPoolError(null)
       try {
         const accessToken = await auth.getValidAccessToken()
 
-        const me = await fetchMe(accessToken)
-        console.log('[pool] logged in as', me.id, '-', me.display_name)
-
-        const playlistMeta = await fetchPlaylistMeta(accessToken, PLAYLIST_ID)
+        const playlistMeta = await fetchPlaylistMeta(accessToken, activePlaylistId)
+        if (cancelled) return
+        setPlaylistInfo({ name: playlistMeta.name, thumbnailUrl: playlistMeta.images?.[0]?.url ?? null })
         console.log('[pool] playlist owner', playlistMeta.owner.id, '-', playlistMeta.owner.display_name, {
           name: playlistMeta.name,
           public: playlistMeta.public,
           collaborative: playlistMeta.collaborative,
         })
 
-        const tracks = await fetchPlaylistTracks(accessToken, PLAYLIST_ID)
+        const tracks = await fetchPlaylistTracks(accessToken, activePlaylistId)
         if (cancelled) return
         const dailyPick = pickDailyTrack(tracks)
         setPool(tracks)
         setCurrentTrack(dailyPick)
         setOffsetMsState(getIntroOffsetMs(dailyPick?.id))
+        setAttempts([])
+        setPlayError(null)
+        setQuery('')
+        setSearchResults([])
+        setWinClipSeconds(null)
       } catch (err) {
         if (cancelled) return
         console.error('[pool] failed to load playlist', err)
         setPoolError(err.message)
       }
     }
-    loadPool()
+    loadPlaylist()
     return () => {
       cancelled = true
     }
-  }, [auth.status, auth.getValidAccessToken])
+  }, [auth.status, auth.getValidAccessToken, activePlaylistId])
+
+  const switchPlaylist = useCallback((playlistId) => {
+    setActivePlaylistId(playlistId)
+    setShowSwitcher(false)
+  }, [])
 
   useEffect(() => {
     if (!query.trim() || auth.status !== 'authenticated') return
@@ -156,8 +197,8 @@ export default function App() {
     setWinClipSeconds(null)
   }, [pool, currentTrack])
 
-  if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
-    return <p>Fill in CLIENT_ID and PLAYLIST_ID in src/config.js before running this.</p>
+  if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || DEFAULT_PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
+    return <p>Fill in CLIENT_ID and DEFAULT_PLAYLIST_ID in src/config.js before running this.</p>
   }
 
   const readyToPlay = Boolean(deviceId && currentTrack && playerStatus === 'ready')
@@ -176,6 +217,28 @@ export default function App() {
 
       {auth.status === 'authenticated' && (
         <>
+          {playlistInfo && (
+            <section className="playlist-bar">
+              {playlistInfo.thumbnailUrl && <img src={playlistInfo.thumbnailUrl} alt="" className="playlist-thumb" />}
+              <span className="playlist-name">{playlistInfo.name}</span>
+              <button onClick={() => setShowSwitcher((v) => !v)}>Switch playlist</button>
+            </section>
+          )}
+
+          {showSwitcher && (
+            <ul className="playlist-switcher">
+              {!myPlaylists && <li className="hint">Loading your playlists…</li>}
+              {myPlaylists?.map((p) => (
+                <li key={p.id}>
+                  <button onClick={() => switchPlaylist(p.id)} disabled={p.id === activePlaylistId}>
+                    {p.thumbnailUrl && <img src={p.thumbnailUrl} alt="" className="thumb" />}
+                    <span>{p.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           {playerError && <p className="error">{playerError}</p>}
           {poolError && <p className="error">Could not load playlist: {poolError}</p>}
           {auth.status === 'authenticated' && playerStatus !== 'ready' && !playerError && (
