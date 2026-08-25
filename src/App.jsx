@@ -3,6 +3,7 @@ import { CLIENT_ID, PLAYLIST_ID, STAGES } from './config'
 import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
 import { fetchMe, fetchPlaylistMeta, fetchPlaylistTracks, searchTracks } from './spotifyApi'
 import { playStage } from './timing'
+import { isSameSong, prioritizePoolMatches } from './trackMatch'
 import { useSpotifyAuth } from './useSpotifyAuth'
 import { useSpotifyPlayer } from './useSpotifyPlayer'
 
@@ -26,6 +27,8 @@ export default function App() {
   const [attempts, setAttempts] = useState([])
   const [busy, setBusy] = useState(false)
   const [playError, setPlayError] = useState(null)
+  const [roundStartedAt, setRoundStartedAt] = useState(null)
+  const [winTimeSeconds, setWinTimeSeconds] = useState(null)
 
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -59,6 +62,7 @@ export default function App() {
         if (cancelled) return
         setPool(tracks)
         setCurrentTrack(pickDailyTrack(tracks))
+        setRoundStartedAt(Date.now())
       } catch (err) {
         if (cancelled) return
         console.error('[pool] failed to load playlist', err)
@@ -79,7 +83,7 @@ export default function App() {
       try {
         const accessToken = await auth.getValidAccessToken()
         const results = await searchTracks(accessToken, query)
-        if (!cancelled) setSearchResults(results)
+        if (!cancelled) setSearchResults(prioritizePoolMatches(results, pool))
       } catch (err) {
         console.error('[search] failed', err)
       } finally {
@@ -90,7 +94,7 @@ export default function App() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [query, auth.status, auth.getValidAccessToken])
+  }, [query, auth.status, auth.getValidAccessToken, pool])
 
   const playClip = useCallback(async () => {
     if (!player || !deviceId || !currentTrack || busy) return
@@ -118,13 +122,14 @@ export default function App() {
   const submitGuess = useCallback(
     (track) => {
       if (!currentTrack || over || busy) return
-      const correct = track.id === currentTrack.id
+      const correct = isSameSong(track, currentTrack)
       console.log('[guess]', track.name, '-', track.artists, '->', correct ? 'CORRECT' : 'WRONG')
+      if (correct && roundStartedAt) setWinTimeSeconds((Date.now() - roundStartedAt) / 1000)
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
     },
-    [currentTrack, over, busy],
+    [currentTrack, over, busy, roundStartedAt],
   )
 
   const skip = useCallback(() => {
@@ -140,6 +145,8 @@ export default function App() {
     setPlayError(null)
     setQuery('')
     setSearchResults([])
+    setRoundStartedAt(Date.now())
+    setWinTimeSeconds(null)
   }, [pool])
 
   if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
@@ -251,6 +258,9 @@ export default function App() {
         <div className="result-overlay">
           <div className="result-card">
             <h2 className={won ? 'win' : 'lose'}>{won ? 'Correct!' : 'Wrong!'}</h2>
+            {won && winTimeSeconds != null && (
+              <p className="win-time">Congrats — you guessed in {winTimeSeconds.toFixed(1)}s</p>
+            )}
             <p>
               {currentTrack.name} — {currentTrack.artists}
             </p>

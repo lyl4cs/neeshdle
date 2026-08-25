@@ -20,24 +20,37 @@
 //  4. After pause() resolves, read getCurrentState() once more — its
 //     position is the actual measured play duration for this stage.
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Spotify Connect briefly rejects playback commands with 403 "Restriction
+// violated" (reason UNKNOWN) when commands come in too close together —
+// seen in practice when clicking through clips/guesses quickly. It's
+// transient, so a short retry clears it without surfacing an error for
+// what's really just normal fast play.
+async function issuePlayCommand(accessToken, deviceId, trackUri, attempt = 0) {
+  const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ uris: [trackUri], position_ms: 0 }),
+  })
+  if (res.ok || res.status === 204) return
+
+  const body = await res.text().catch(() => '')
+  const isRestrictionViolation = res.status === 403 && body.includes('Restriction violated')
+  if (isRestrictionViolation && attempt < 2) {
+    await sleep(400 * (attempt + 1))
+    return issuePlayCommand(accessToken, deviceId, trackUri, attempt + 1)
+  }
+  throw new Error(`Play command failed: ${res.status} ${body}`)
+}
+
 export async function playStage({ player, accessToken, deviceId, trackUri, targetMs }) {
   const commandSentAt = performance.now()
 
-  const playRes = await fetch(
-    `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ uris: [trackUri], position_ms: 0 }),
-    },
-  )
-  if (!playRes.ok && playRes.status !== 204) {
-    const body = await playRes.text().catch(() => '')
-    throw new Error(`Play command failed: ${playRes.status} ${body}`)
-  }
+  await issuePlayCommand(accessToken, deviceId, trackUri)
 
   return new Promise((resolve, reject) => {
     let rafId = null
