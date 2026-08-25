@@ -89,8 +89,8 @@ export async function playStage({ player, accessToken, deviceId, trackUri, targe
     }
 
     if (targetMs === 'full') {
-      // No pause scheduled — let it play out, log start latency and detect
-      // the natural end (paused flips back to true) as a sanity check.
+      // Start the track and return once audio is actually rolling so the
+      // game UI is not locked for the rest of the song.
       intervalId = setInterval(async () => {
         try {
           const state = await player.getCurrentState()
@@ -98,8 +98,6 @@ export async function playStage({ player, accessToken, deviceId, trackUri, targe
           const now = performance.now()
           if (startedAt === null && !state.paused && state.position > 0) {
             startedAt = now - state.position
-          }
-          if (startedAt !== null && state.paused) {
             finish({
               targetMs: 'full',
               startLatencyMs: startedAt - commandSentAt,
