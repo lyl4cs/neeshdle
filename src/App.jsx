@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CLIENT_ID, PLAYLIST_ID, STAGES } from './config'
 import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
+import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
 import { fetchMe, fetchPlaylistMeta, fetchPlaylistTracks, searchTracks } from './spotifyApi'
 import { playStage } from './timing'
+import { isSameSong, prioritizePoolMatches } from './trackMatch'
 import { useSpotifyAuth } from './useSpotifyAuth'
 import { useSpotifyPlayer } from './useSpotifyPlayer'
 
@@ -26,6 +28,9 @@ export default function App() {
   const [attempts, setAttempts] = useState([])
   const [busy, setBusy] = useState(false)
   const [playError, setPlayError] = useState(null)
+  const roundStartedAtRef = useRef(null)
+  const [winTimeSeconds, setWinTimeSeconds] = useState(null)
+  const [offsetMs, setOffsetMsState] = useState(0)
 
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -57,8 +62,11 @@ export default function App() {
 
         const tracks = await fetchPlaylistTracks(accessToken, PLAYLIST_ID)
         if (cancelled) return
+        const dailyPick = pickDailyTrack(tracks)
         setPool(tracks)
-        setCurrentTrack(pickDailyTrack(tracks))
+        setCurrentTrack(dailyPick)
+        setOffsetMsState(getIntroOffsetMs(dailyPick?.id))
+        roundStartedAtRef.current = Date.now()
       } catch (err) {
         if (cancelled) return
         console.error('[pool] failed to load playlist', err)
@@ -79,7 +87,7 @@ export default function App() {
       try {
         const accessToken = await auth.getValidAccessToken()
         const results = await searchTracks(accessToken, query)
-        if (!cancelled) setSearchResults(results)
+        if (!cancelled) setSearchResults(prioritizePoolMatches(results, pool))
       } catch (err) {
         console.error('[search] failed', err)
       } finally {
@@ -90,7 +98,7 @@ export default function App() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [query, auth.status, auth.getValidAccessToken])
+  }, [query, auth.status, auth.getValidAccessToken, pool])
 
   const playClip = useCallback(async () => {
     if (!player || !deviceId || !currentTrack || busy) return
@@ -105,6 +113,7 @@ export default function App() {
         deviceId,
         trackUri: currentTrack.uri,
         targetMs,
+        startOffsetMs: offsetMs,
       })
       console.log(`[timing] clip ${String(targetMs)}`, measurement)
     } catch (err) {
@@ -113,13 +122,16 @@ export default function App() {
     } finally {
       setBusy(false)
     }
-  }, [player, deviceId, currentTrack, busy, over, currentStage, auth])
+  }, [player, deviceId, currentTrack, busy, over, currentStage, offsetMs, auth])
 
   const submitGuess = useCallback(
     (track) => {
       if (!currentTrack || over || busy) return
-      const correct = track.id === currentTrack.id
+      const correct = isSameSong(track, currentTrack)
       console.log('[guess]', track.name, '-', track.artists, '->', correct ? 'CORRECT' : 'WRONG')
+      if (correct && roundStartedAtRef.current) {
+        setWinTimeSeconds((Date.now() - roundStartedAtRef.current) / 1000)
+      }
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
@@ -135,12 +147,16 @@ export default function App() {
 
   const startNewSong = useCallback(() => {
     if (!pool) return
-    setCurrentTrack((prev) => pickRandomTrack(pool, prev?.id))
+    const nextTrack = pickRandomTrack(pool, currentTrack?.id)
+    setCurrentTrack(nextTrack)
+    setOffsetMsState(getIntroOffsetMs(nextTrack?.id))
     setAttempts([])
     setPlayError(null)
     setQuery('')
     setSearchResults([])
-  }, [pool])
+    roundStartedAtRef.current = Date.now()
+    setWinTimeSeconds(null)
+  }, [pool, currentTrack])
 
   if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
     return <p>Fill in CLIENT_ID and PLAYLIST_ID in src/config.js before running this.</p>
@@ -207,6 +223,24 @@ export default function App() {
               </div>
               {playError && <p className="error">{playError}</p>}
 
+              <div className="offset-control">
+                <label>
+                  Skip silent intro (s):{' '}
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={offsetMs / 1000}
+                    onChange={(e) => {
+                      const seconds = Math.max(0, Number(e.target.value) || 0)
+                      const ms = Math.round(seconds * 1000)
+                      setOffsetMsState(ms)
+                      if (currentTrack) setIntroOffsetMs(currentTrack.id, ms)
+                    }}
+                  />
+                </label>
+              </div>
+
               {!over && (
                 <>
                   <input
@@ -251,6 +285,9 @@ export default function App() {
         <div className="result-overlay">
           <div className="result-card">
             <h2 className={won ? 'win' : 'lose'}>{won ? 'Correct!' : 'Wrong!'}</h2>
+            {won && winTimeSeconds != null && (
+              <p className="win-time">Congrats — you guessed in {winTimeSeconds.toFixed(1)}s</p>
+            )}
             <p>
               {currentTrack.name} — {currentTrack.artists}
             </p>

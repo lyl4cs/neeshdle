@@ -52,6 +52,18 @@ input {
   gap: 0.75rem;
 }
 
+.offset-control {
+  margin-top: 0.75rem;
+  color: #aaa;
+  font-size: 0.85rem;
+}
+
+.offset-control input {
+  width: 4rem;
+  display: inline-block;
+  margin-top: 0;
+}
+
 .slots {
   display: flex;
   gap: 0.5rem;
@@ -153,6 +165,11 @@ input {
 
 .result-card h2.lose {
   color: #f88;
+}
+
+.win-time {
+  color: #1db954;
+  font-weight: 600;
 }
 
 .result-card button {
