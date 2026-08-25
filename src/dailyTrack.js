@@ -9,3 +9,11 @@ export function pickDailyTrack(tracks) {
   )
   return tracks[utcDayNumber % tracks.length]
 }
+
+// Random pick for "New song" — excludes the current track (when possible)
+// so hitting the button doesn't just hand you the same song back.
+export function pickRandomTrack(tracks, excludeId) {
+  if (!tracks || tracks.length === 0) return null
+  const candidates = tracks.length > 1 ? tracks.filter((t) => t.id !== excludeId) : tracks
+  return candidates[Math.floor(Math.random() * candidates.length)]
+}

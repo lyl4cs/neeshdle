@@ -22,7 +22,12 @@ export function useSpotifyAuth() {
       expiresAt: nextExpiresAt,
     }
     setExpiresAt(nextExpiresAt)
-    console.log('[auth] token set, expires at', new Date(nextExpiresAt).toLocaleTimeString())
+    console.log(
+      '[auth] token set, expires at',
+      new Date(nextExpiresAt).toLocaleTimeString(),
+      'granted scope:',
+      tokenResponse.scope,
+    )
   }, [])
 
   useEffect(() => {
