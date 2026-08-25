@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CLIENT_ID, PLAYLIST_ID, STAGES } from './config'
-import { pickDailyTrack } from './dailyTrack'
-import { fetchPlaylistTracks, searchTracks } from './spotifyApi'
+import { pickDailyTrack, pickRandomTrack } from './dailyTrack'
+import { fetchMe, fetchPlaylistMeta, fetchPlaylistTracks, searchTracks } from './spotifyApi'
 import { playStage } from './timing'
 import { useSpotifyAuth } from './useSpotifyAuth'
 import { useSpotifyPlayer } from './useSpotifyPlayer'
@@ -20,7 +20,7 @@ export default function App() {
   )
 
   const [pool, setPool] = useState(null)
-  const [dailyTrack, setDailyTrack] = useState(null)
+  const [currentTrack, setCurrentTrack] = useState(null)
   const [poolError, setPoolError] = useState(null)
 
   const [attempts, setAttempts] = useState([])
@@ -44,10 +44,21 @@ export default function App() {
     async function loadPool() {
       try {
         const accessToken = await auth.getValidAccessToken()
+
+        const me = await fetchMe(accessToken)
+        console.log('[pool] logged in as', me.id, '-', me.display_name)
+
+        const playlistMeta = await fetchPlaylistMeta(accessToken, PLAYLIST_ID)
+        console.log('[pool] playlist owner', playlistMeta.owner.id, '-', playlistMeta.owner.display_name, {
+          name: playlistMeta.name,
+          public: playlistMeta.public,
+          collaborative: playlistMeta.collaborative,
+        })
+
         const tracks = await fetchPlaylistTracks(accessToken, PLAYLIST_ID)
         if (cancelled) return
         setPool(tracks)
-        setDailyTrack(pickDailyTrack(tracks))
+        setCurrentTrack(pickDailyTrack(tracks))
       } catch (err) {
         if (cancelled) return
         console.error('[pool] failed to load playlist', err)
@@ -82,7 +93,7 @@ export default function App() {
   }, [query, auth.status, auth.getValidAccessToken])
 
   const playClip = useCallback(async () => {
-    if (!player || !deviceId || !dailyTrack || busy) return
+    if (!player || !deviceId || !currentTrack || busy) return
     const targetMs = over ? 'full' : currentStage
     setBusy(true)
     setPlayError(null)
@@ -92,7 +103,7 @@ export default function App() {
         player,
         accessToken,
         deviceId,
-        trackUri: dailyTrack.uri,
+        trackUri: currentTrack.uri,
         targetMs,
       })
       console.log(`[timing] clip ${String(targetMs)}`, measurement)
@@ -102,31 +113,40 @@ export default function App() {
     } finally {
       setBusy(false)
     }
-  }, [player, deviceId, dailyTrack, busy, over, currentStage, auth])
+  }, [player, deviceId, currentTrack, busy, over, currentStage, auth])
 
   const submitGuess = useCallback(
     (track) => {
-      if (!dailyTrack || over || busy) return
-      const correct = track.id === dailyTrack.id
+      if (!currentTrack || over || busy) return
+      const correct = track.id === currentTrack.id
       console.log('[guess]', track.name, '-', track.artists, '->', correct ? 'CORRECT' : 'WRONG')
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
       setQuery('')
     },
-    [dailyTrack, over, busy],
+    [currentTrack, over, busy],
   )
 
   const skip = useCallback(() => {
-    if (!dailyTrack || over || busy) return
+    if (!currentTrack || over || busy) return
     console.log('[guess] skip')
     setAttempts((prev) => [...prev, { kind: 'skip', correct: false }])
-  }, [dailyTrack, over, busy])
+  }, [currentTrack, over, busy])
+
+  const startNewSong = useCallback(() => {
+    if (!pool) return
+    setCurrentTrack((prev) => pickRandomTrack(pool, prev?.id))
+    setAttempts([])
+    setPlayError(null)
+    setQuery('')
+    setSearchResults([])
+  }, [pool])
 
   if (CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID' || PLAYLIST_ID === 'YOUR_PLAYLIST_ID') {
     return <p>Fill in CLIENT_ID and PLAYLIST_ID in src/config.js before running this.</p>
   }
 
-  const readyToPlay = Boolean(deviceId && dailyTrack && playerStatus === 'ready')
+  const readyToPlay = Boolean(deviceId && currentTrack && playerStatus === 'ready')
 
   return (
     <div className="app">
@@ -187,12 +207,6 @@ export default function App() {
               </div>
               {playError && <p className="error">{playError}</p>}
 
-              {over && dailyTrack && (
-                <p className={won ? 'result win' : 'result lose'}>
-                  {won ? 'Correct!' : 'Not this time.'} {dailyTrack.name} — {dailyTrack.artists}
-                </p>
-              )}
-
               {!over && (
                 <>
                   <input
@@ -231,6 +245,18 @@ export default function App() {
             </section>
           )}
         </>
+      )}
+
+      {over && currentTrack && (
+        <div className="result-overlay">
+          <div className="result-card">
+            <h2 className={won ? 'win' : 'lose'}>{won ? 'Correct!' : 'Wrong!'}</h2>
+            <p>
+              {currentTrack.name} — {currentTrack.artists}
+            </p>
+            <button onClick={startNewSong}>New song</button>
+          </div>
+        </div>
       )}
     </div>
   )
