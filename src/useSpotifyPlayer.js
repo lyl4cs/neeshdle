@@ -3,6 +3,29 @@ import { useEffect, useRef, useState } from 'react'
 const SDK_URL = 'https://sdk.scdn.co/spotify-player.js'
 let sdkPromise = null
 
+// Spotify Connect only lets one device be "active" at a time. If something
+// else (phone, desktop app) was last active, play commands aimed at this
+// SDK device can 403 with "Restriction violated" until it's made active —
+// so claim that explicitly as soon as the device exists, rather than
+// relying on the play command to do it implicitly.
+async function transferPlaybackHere(accessToken, deviceId) {
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ device_ids: [deviceId], play: false }),
+    })
+    if (!res.ok && res.status !== 204) {
+      console.warn('[player] transfer playback failed', res.status, await res.text())
+    }
+  } catch (err) {
+    console.error('[player] transfer playback error', err)
+  }
+}
+
 function loadSdk() {
   if (window.Spotify) return Promise.resolve(window.Spotify)
   if (sdkPromise) return sdkPromise
@@ -37,7 +60,7 @@ export function useSpotifyPlayer(getOAuthTokenFn, enabled) {
     loadSdk().then((Spotify) => {
       if (cancelled) return
       const player = new Spotify.Player({
-        name: 'Heardle SDK Spike',
+        name: 'Heardle',
         getOAuthToken: (cb) => {
           getTokenRef.current().then(cb).catch((err) => {
             console.error('[player] getOAuthToken failed', err)
@@ -50,6 +73,7 @@ export function useSpotifyPlayer(getOAuthTokenFn, enabled) {
         console.log('[player] ready, device_id =', device_id)
         setDeviceId(device_id)
         setStatus('ready')
+        getTokenRef.current().then((accessToken) => transferPlaybackHere(accessToken, device_id))
       })
       player.addListener('not_ready', ({ device_id }) => {
         console.warn('[player] not_ready', device_id)
