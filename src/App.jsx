@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AccountMode from './AccountMode'
 import { NoteIcon } from './icons'
 import PublicMode from './PublicMode'
 import SpotifyMode from './SpotifyMode'
@@ -8,6 +9,7 @@ export default function App() {
 
   if (mode === 'spotify') return <SpotifyMode onBack={() => setMode(null)} />
   if (mode === 'public') return <PublicMode onBack={() => setMode(null)} />
+  if (mode === 'account') return <AccountMode onBack={() => setMode(null)} />
 
   return (
     <div className="app">
@@ -37,10 +39,15 @@ export default function App() {
           a small curated pool of songs, works for anyone
         </p>
 
-        <button className="login-btn" onClick={() => setMode('spotify')}>
+        <button className="login-btn" onClick={() => setMode('spotify')} style={{ marginBottom: 10 }}>
           Log in with Spotify
         </button>
-        <p className="login-note">use your own playlist — Premium required</p>
+        <p className="login-note" style={{ marginBottom: 18 }}>use your own playlist — Premium required</p>
+
+        <button className="login-btn" onClick={() => setMode('account')}>
+          Log in / Sign up
+        </button>
+        <p className="login-note">a neeshdle account — stats follow you across devices</p>
       </div>
     </div>
   )

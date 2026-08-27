@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { STAGES } from './config'
 import { CheckIcon, NoteIcon, SkipIcon, XIcon } from './icons'
-import { getAnonId } from './anonId'
 import { playPublicStage } from './audioPlayback'
 import { CURATED_TRACK_IDS } from './curatedTracks'
 import { lookupTracks, searchTracks } from './itunesApi'
 import { buildPromptPool } from './promptSongs'
-import { getStatsSummary, recordRound } from './stats'
+import { createLocalStatsBackend } from './statsBackend'
 import { isSameSong, prioritizePoolMatches } from './trackMatch'
 import { pickUnplayedTrack } from './trackPicker'
 
@@ -41,8 +40,8 @@ function computeMarkerPositions(stages) {
 
 const MARKER_POSITIONS = computeMarkerPositions(STAGES)
 
-export default function PublicMode({ onBack }) {
-  const anonIdRef = useRef(getAnonId())
+export default function PublicMode({ onBack, statsBackend, modeLabel = 'public mode' }) {
+  const statsBackendRef = useRef(statsBackend ?? createLocalStatsBackend())
   const audioRef = useRef(null)
   // Tracks played this page session so a given song won't repeat until a
   // refresh clears it — intentionally in-memory only, not persisted.
@@ -179,10 +178,10 @@ export default function PublicMode({ onBack }) {
       if (correct) {
         const clipSeconds = currentStage / 1000
         setWinClipSeconds(clipSeconds)
-        recordRound(anonIdRef.current, { track: currentTrack, correct: true, clipSeconds })
+        statsBackendRef.current.recordRound({ track: currentTrack, correct: true, clipSeconds })
         setSessionResults((prev) => [...prev, { correct: true, clipSeconds }])
       } else if (failCount + 1 >= STAGES.length) {
-        recordRound(anonIdRef.current, { track: currentTrack, correct: false, clipSeconds: null })
+        statsBackendRef.current.recordRound({ track: currentTrack, correct: false, clipSeconds: null })
         setSessionResults((prev) => [...prev, { correct: false, clipSeconds: null }])
       }
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
@@ -196,7 +195,7 @@ export default function PublicMode({ onBack }) {
     if (!currentTrack || over || busy) return
     console.log('[guess] skip')
     if (failCount + 1 >= STAGES.length) {
-      recordRound(anonIdRef.current, { track: currentTrack, correct: false, clipSeconds: null })
+      statsBackendRef.current.recordRound({ track: currentTrack, correct: false, clipSeconds: null })
       setSessionResults((prev) => [...prev, { correct: false, clipSeconds: null }])
     }
     setAttempts((prev) => [...prev, { kind: 'skip', correct: false }])
@@ -345,8 +344,9 @@ export default function PublicMode({ onBack }) {
           <div className="header-actions">
             <button
               className="btn-bracket"
-              onClick={() => {
-                setStats(getStatsSummary(anonIdRef.current))
+              onClick={async () => {
+                const summary = await statsBackendRef.current.getStatsSummary()
+                setStats(summary)
                 setShowStats((v) => !v)
               }}
             >
@@ -358,7 +358,7 @@ export default function PublicMode({ onBack }) {
           </div>
         </div>
         <p className="btn-bracket" style={{ textAlign: 'left', paddingLeft: 32, color: '#a8402f', fontSize: 11, opacity: 0.8, margin: '4px 0 14px' }}>
-          [ public mode ]
+          [ {modeLabel} ]
         </p>
         <p className="label" style={{ textAlign: 'center', marginBottom: 18 }}>
           {poolPrompt ? `pool: ${poolPrompt}` : 'guess it — no login required'}

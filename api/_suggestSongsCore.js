@@ -2,21 +2,10 @@
 // and the Vite dev-server middleware (vite.config.js) so local dev exercises
 // the exact same logic that runs in production, not a reimplementation.
 
+import { isRateLimited } from './_rateLimit.js'
+
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
 const RATE_LIMIT_MAX = 10
-// In-memory, per-process — resets on cold start and isn't shared across
-// concurrent serverless instances, so this is a best-effort speed bump
-// against casual abuse, not a hard guarantee. If this endpoint sees real
-// abuse, replace with a shared store (Vercel KV / Upstash).
-const requestLog = new Map()
-
-function isRateLimited(ip) {
-  const now = Date.now()
-  const timestamps = (requestLog.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS)
-  timestamps.push(now)
-  requestLog.set(ip, timestamps)
-  return timestamps.length > RATE_LIMIT_MAX
-}
 
 // Deliberately asks for ARTIST NAMES, never song titles. A model recalling
 // a specific niche artist's exact tracklist from memory hallucinates often
@@ -51,7 +40,7 @@ function extractJsonArray(text) {
 // Returns { status, body } — transport-agnostic so both the Vercel handler
 // and the Vite dev middleware can just forward it as their response.
 export async function handleSuggestSongs({ prompt, count, ip, apiKey }) {
-  if (isRateLimited(ip)) {
+  if (isRateLimited('suggest-songs', ip, { windowMs: RATE_LIMIT_WINDOW_MS, max: RATE_LIMIT_MAX })) {
     return { status: 429, body: { error: 'Too many requests — try again in a few minutes.' } }
   }
 
