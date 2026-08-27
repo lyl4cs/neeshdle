@@ -55,17 +55,29 @@ function normalize(str) {
 
 // There's no reliable way to search for a specific album directly (iTunes's
 // album search is inconsistent — e.g. searching "Room on Fire" doesn't
-// surface The Strokes' actual album at all) — instead, pull everything by
-// the artist (already proven reliable) and filter by collectionName
-// client-side, which the artist-scoped entity=song search returns for free.
+// surface The Strokes' actual album at all). Two-step instead: search the
+// artist's catalog (already proven reliable) to find any one track whose
+// collectionName matches, then look up that track's collectionId directly —
+// a search only returns whatever ranks within its result limit (an artist
+// with a large/scattered catalog of singles and re-releases can bury all
+// but one track of a given album past that cutoff, as happened with
+// Tiffany Day's 13-track "HALO" — only "NO LUCK" ranked inside the top 100),
+// while a lookup by the exact collection id returns the complete,
+// authoritative tracklist regardless of search relevance.
 export async function searchTracksByArtistAndAlbum(artistName, albumName, limit = 100) {
   if (!artistName.trim() || !albumName.trim()) return []
   const data = await itunesGet(
     `search?media=music&entity=song&attribute=artistTerm&limit=${limit}&term=${encodeURIComponent(artistName)}`,
   )
   const wantAlbum = normalize(albumName)
-  return data.results
-    .filter((r) => r.previewUrl && r.collectionName && normalize(r.collectionName).includes(wantAlbum))
+  const match = data.results.find(
+    (r) => r.previewUrl && r.collectionName && normalize(r.collectionName).includes(wantAlbum),
+  )
+  if (!match) return []
+
+  const albumData = await itunesGet(`lookup?id=${match.collectionId}&entity=song`)
+  return albumData.results
+    .filter((r) => r.wrapperType === 'track' && r.previewUrl)
     .map(toTrackSummary)
 }
 
