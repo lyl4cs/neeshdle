@@ -23,13 +23,11 @@ export function SkipIcon() {
   )
 }
 
-export function NoteIcon({ size = 22 }) {
+export function BoltIcon({ size = 22 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" stroke="#1a1a1a" strokeWidth="1.6" aria-hidden="true">
       <circle cx="11" cy="11" r="9" />
-      <path d="M8 12.5 L8 8 L14 6.5 L14 11" />
-      <circle cx="8" cy="13" r="1.6" />
-      <circle cx="14" cy="12" r="1.6" />
+      <path d="M12.5,4.5 L7.5,12 L10.3,12 L9.5,17.5 L14.5,10 L11.7,10 Z" fill="#1a1a1a" stroke="none" />
     </svg>
   )
 }

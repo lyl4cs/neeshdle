@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getCurrentUser, login, logout, signup } from './authApi'
-import { NoteIcon } from './icons'
+import { BoltIcon } from './icons'
 import PublicMode from './PublicMode'
 import { createServerStatsBackend } from './statsBackend'
 
@@ -98,7 +98,7 @@ export default function AccountMode({ onBack }) {
           <div className="grain-coarse" />
           <div className="grain-wash" />
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-            <NoteIcon size={34} />
+            <BoltIcon size={34} />
           </div>
           <p className="stamp-font" style={{ fontSize: 24, margin: '0 0 14px' }}>
             neeshdle
@@ -117,7 +117,7 @@ export default function AccountMode({ onBack }) {
           <div className="grain-coarse" />
           <div className="grain-wash" />
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-            <NoteIcon size={34} />
+            <BoltIcon size={34} />
           </div>
           <p className="stamp-font" style={{ fontSize: 24, margin: '0 0 14px' }}>
             neeshdle

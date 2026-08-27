@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CLIENT_ID, DEFAULT_PLAYLIST_ID, STAGES } from './config'
-import { CheckIcon, NoteIcon, SkipIcon, XIcon } from './icons'
+import { BoltIcon, CheckIcon, SkipIcon, XIcon } from './icons'
 import { getIntroOffsetMs, setIntroOffsetMs } from './introOffsets'
 import {
   fetchMe,
@@ -279,7 +279,7 @@ export default function SpotifyMode({ onBack }) {
           <div className="grain-coarse" />
           <div className="grain-wash" />
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-            <NoteIcon size={34} />
+            <BoltIcon size={34} />
           </div>
           <p className="stamp-font" style={{ fontSize: 24, margin: '0 0 14px' }}>
             neeshdle
@@ -342,7 +342,7 @@ export default function SpotifyMode({ onBack }) {
 
             <div className="row" style={{ alignItems: 'center', marginBottom: 0 }}>
               <div className="wordmark">
-                <NoteIcon />
+                <BoltIcon />
                 <span className="stamp-font">neeshdle</span>
               </div>
               <div className="header-actions">

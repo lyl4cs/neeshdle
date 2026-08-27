@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { STAGES } from './config'
-import { CheckIcon, NoteIcon, SkipIcon, XIcon } from './icons'
+import { BoltIcon, CheckIcon, SkipIcon, XIcon } from './icons'
 import { playPublicStage } from './audioPlayback'
 import { CURATED_TRACK_IDS } from './curatedTracks'
-import { lookupTracks, searchTracks } from './itunesApi'
+import { fetchTopSongs, lookupTracks, searchTracks } from './itunesApi'
 import { buildPromptPool } from './promptSongs'
 import { createLocalStatsBackend } from './statsBackend'
 import { isSameSong, prioritizePoolMatches } from './trackMatch'
@@ -121,7 +121,16 @@ export default function PublicMode({ onBack, statsBackend, modeLabel = 'public m
     setPromptBusy(true)
     setPromptSetupError(null)
     try {
-      const tracks = await lookupTracks(CURATED_TRACK_IDS)
+      let tracks
+      try {
+        tracks = await fetchTopSongs()
+      } catch (err) {
+        // Falls back to the static curated list rather than a dead end if
+        // Apple's chart feed is unreachable — the static list is here for
+        // exactly this, not as the everyday path.
+        console.error('[pool] live top-songs chart failed, using curated fallback', err)
+        tracks = await lookupTracks(CURATED_TRACK_IDS)
+      }
       startPool(tracks, "today's top hits")
     } catch (err) {
       console.error('[pool] failed to load default pool', err)
@@ -296,7 +305,7 @@ export default function PublicMode({ onBack, statsBackend, modeLabel = 'public m
           <div className="grain-coarse" />
           <div className="grain-wash" />
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-            <NoteIcon size={34} />
+            <BoltIcon size={34} />
           </div>
           <p className="stamp-font" style={{ fontSize: 24, margin: '0 0 14px' }}>
             neeshdle
@@ -338,7 +347,7 @@ export default function PublicMode({ onBack, statsBackend, modeLabel = 'public m
 
         <div className="row" style={{ alignItems: 'center', marginBottom: 0 }}>
           <div className="wordmark">
-            <NoteIcon />
+            <BoltIcon />
             <span className="stamp-font">neeshdle</span>
           </div>
           <div className="header-actions">

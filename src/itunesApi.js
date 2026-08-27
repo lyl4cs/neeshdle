@@ -45,3 +45,35 @@ export async function searchTracksByArtist(artistName, limit = 15) {
   )
   return data.results.filter((r) => r.previewUrl).map(toTrackSummary)
 }
+
+function largestImage(images) {
+  return images?.[images.length - 1]?.label ?? null
+}
+
+function previewUrlFromLinks(links) {
+  const preview = (Array.isArray(links) ? links : [links]).find(
+    (l) => l?.attributes?.rel === 'enclosure' && l?.attributes?.type === 'audio/x-m4a',
+  )
+  return preview?.attributes?.href ?? null
+}
+
+// The legacy RSS chart feed (unlike rss.marketingtools.apple.com, which has
+// no CORS headers) is fetchable directly from the browser and doubles as
+// "what's actually popular right now" — real chart data refreshed by Apple,
+// rather than a one-time hand-picked list that goes stale (a hardcoded
+// "top hits" list from today is next year's "why is this still here").
+export async function fetchTopSongs(limit = 50) {
+  const res = await fetch(`https://itunes.apple.com/us/rss/topsongs/limit=${limit}/json`)
+  if (!res.ok) throw new Error(`iTunes top songs request failed: ${res.status}`)
+  const data = await res.json()
+  const entries = data.feed?.entry ?? []
+  return entries
+    .map((entry) => ({
+      id: entry.id?.attributes?.['im:id'],
+      name: entry['im:name']?.label,
+      artists: entry['im:artist']?.label,
+      thumbnailUrl: largestImage(entry['im:image']),
+      previewUrl: previewUrlFromLinks(entry.link),
+    }))
+    .filter((t) => t.id && t.name && t.previewUrl)
+}

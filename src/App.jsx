@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import AccountMode from './AccountMode'
-import { NoteIcon } from './icons'
+import { BoltIcon } from './icons'
 import PublicMode from './PublicMode'
 import SpotifyMode from './SpotifyMode'
 
@@ -25,7 +25,7 @@ export default function App() {
         <div className="grain-coarse" />
         <div className="grain-wash" />
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-          <NoteIcon size={34} />
+          <BoltIcon size={34} />
         </div>
         <p className="stamp-font" style={{ fontSize: 24, margin: '0 0 14px' }}>
           neeshdle
