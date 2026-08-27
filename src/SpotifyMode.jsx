@@ -64,6 +64,9 @@ export default function SpotifyMode({ onBack }) {
   const playedTrackIdsRef = useRef(new Set())
 
   const [activePlaylistId, setActivePlaylistId] = useState(DEFAULT_PLAYLIST_ID)
+  // Guards the one-time auto-select in loadMyPlaylists below so it never
+  // overrides a playlist the user later switches to manually.
+  const hasAutoSelectedPlaylistRef = useRef(false)
   const [playlistInfo, setPlaylistInfo] = useState(null)
   const [myPlaylists, setMyPlaylists] = useState(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
@@ -101,7 +104,21 @@ export default function SpotifyMode({ onBack }) {
         console.log('[pool] logged in as', me.id, '-', me.display_name)
         if (!cancelled) setUserId(me.id)
         const playlists = await fetchMyPlaylists(accessToken)
-        if (!cancelled) setMyPlaylists(playlists)
+        if (cancelled) return
+        setMyPlaylists(playlists)
+        // DEFAULT_PLAYLIST_ID is the dev's own curated playlist — fine as
+        // the starting point when they're the one logged in, but anyone
+        // else (e.g. a friend testing this) would otherwise be shown the
+        // dev's playlist by default instead of their own. Only keep it if
+        // this account actually has access to it; otherwise default to
+        // their own first playlist.
+        if (!hasAutoSelectedPlaylistRef.current) {
+          hasAutoSelectedPlaylistRef.current = true
+          const hasAccessToDefault = playlists.some((p) => p.id === DEFAULT_PLAYLIST_ID)
+          if (!hasAccessToDefault && playlists.length > 0) {
+            setActivePlaylistId(playlists[0].id)
+          }
+        }
       } catch (err) {
         console.error('[pool] failed to load your playlists', err)
       }
