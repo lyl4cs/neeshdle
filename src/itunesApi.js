@@ -32,3 +32,16 @@ export async function searchTracks(query, limit = 8) {
   )
   return data.results.filter((r) => r.previewUrl).map(toTrackSummary)
 }
+
+// attribute=artistTerm scopes the match to the artist field specifically,
+// so this returns that artist's real catalog rather than any song whose
+// title/artist/album text happens to contain the query — the ground truth
+// for "what has this artist actually released," used instead of trusting an
+// LLM's memory of an artist's discography (see promptSongs.js).
+export async function searchTracksByArtist(artistName, limit = 15) {
+  if (!artistName.trim()) return []
+  const data = await itunesGet(
+    `search?media=music&entity=song&attribute=artistTerm&limit=${limit}&term=${encodeURIComponent(artistName)}`,
+  )
+  return data.results.filter((r) => r.previewUrl).map(toTrackSummary)
+}
