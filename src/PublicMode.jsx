@@ -5,6 +5,7 @@ import { getAnonId } from './anonId'
 import { playPublicStage } from './audioPlayback'
 import { CURATED_TRACK_IDS } from './curatedTracks'
 import { lookupTracks, searchTracks } from './itunesApi'
+import { buildPromptPool } from './promptSongs'
 import { getStatsSummary, recordRound } from './stats'
 import { isSameSong, prioritizePoolMatches } from './trackMatch'
 import { pickUnplayedTrack } from './trackPicker'
@@ -51,8 +52,18 @@ export default function PublicMode({ onBack }) {
   const [stats, setStats] = useState(null)
 
   const [pool, setPool] = useState(null)
+  const [poolPrompt, setPoolPrompt] = useState(null)
   const [currentTrack, setCurrentTrack] = useState(null)
-  const [poolError, setPoolError] = useState(null)
+  const [poolExhausted, setPoolExhausted] = useState(false)
+  // This pool's rounds only — separate from the lifetime stats in stats.js,
+  // shown as a checkpoint when the player leaves the pool (goToNewPool).
+  const [sessionResults, setSessionResults] = useState([])
+  const [showSessionStats, setShowSessionStats] = useState(false)
+
+  const [showPromptSetup, setShowPromptSetup] = useState(true)
+  const [promptInput, setPromptInput] = useState('')
+  const [promptBusy, setPromptBusy] = useState(false)
+  const [promptSetupError, setPromptSetupError] = useState(null)
 
   const [attempts, setAttempts] = useState([])
   const [busy, setBusy] = useState(false)
@@ -70,33 +81,56 @@ export default function PublicMode({ onBack }) {
   const unlockedIndex = Math.min(failCount, STAGES.length - 1)
   const currentStage = STAGES[unlockedIndex]
 
-  useEffect(() => {
-    let cancelled = false
-    async function loadPool() {
-      setPoolError(null)
-      try {
-        const tracks = await lookupTracks(CURATED_TRACK_IDS)
-        if (cancelled) return
-        const pick = pickUnplayedTrack(tracks, playedTrackIdsRef.current)
-        if (pick) playedTrackIdsRef.current.add(pick.id)
-        setPool(tracks)
-        setCurrentTrack(pick)
-        setAttempts([])
-        setPlayError(null)
-        setQuery('')
-        setSearchResults([])
-        setWinClipSeconds(null)
-      } catch (err) {
-        if (cancelled) return
-        console.error('[pool] failed to load public track pool', err)
-        setPoolError(err.message)
-      }
-    }
-    loadPool()
-    return () => {
-      cancelled = true
-    }
+  const startPool = useCallback((tracks, promptLabel) => {
+    playedTrackIdsRef.current = new Set()
+    setSessionResults([])
+    const pick = pickUnplayedTrack(tracks, playedTrackIdsRef.current)
+    if (pick) playedTrackIdsRef.current.add(pick.id)
+    setPool(tracks)
+    setPoolPrompt(promptLabel)
+    setCurrentTrack(pick)
+    setPoolExhausted(false)
+    setAttempts([])
+    setPlayError(null)
+    setQuery('')
+    setSearchResults([])
+    setWinClipSeconds(null)
+    setShowPromptSetup(false)
+    setShowSessionStats(false)
   }, [])
+
+  const generatePool = useCallback(
+    async (text) => {
+      if (!text.trim() || promptBusy) return
+      setPromptBusy(true)
+      setPromptSetupError(null)
+      try {
+        const tracks = await buildPromptPool(text.trim())
+        startPool(tracks, text.trim())
+      } catch (err) {
+        console.error('[pool] failed to build prompt pool', err)
+        setPromptSetupError(err.message)
+      } finally {
+        setPromptBusy(false)
+      }
+    },
+    [promptBusy, startPool],
+  )
+
+  const loadDefaultPool = useCallback(async () => {
+    if (promptBusy) return
+    setPromptBusy(true)
+    setPromptSetupError(null)
+    try {
+      const tracks = await lookupTracks(CURATED_TRACK_IDS)
+      startPool(tracks, "today's top hits")
+    } catch (err) {
+      console.error('[pool] failed to load default pool', err)
+      setPromptSetupError(err.message)
+    } finally {
+      setPromptBusy(false)
+    }
+  }, [promptBusy, startPool])
 
   useEffect(() => {
     if (!query.trim()) return
@@ -146,8 +180,10 @@ export default function PublicMode({ onBack }) {
         const clipSeconds = currentStage / 1000
         setWinClipSeconds(clipSeconds)
         recordRound(anonIdRef.current, { track: currentTrack, correct: true, clipSeconds })
+        setSessionResults((prev) => [...prev, { correct: true, clipSeconds }])
       } else if (failCount + 1 >= STAGES.length) {
         recordRound(anonIdRef.current, { track: currentTrack, correct: false, clipSeconds: null })
+        setSessionResults((prev) => [...prev, { correct: false, clipSeconds: null }])
       }
       setAttempts((prev) => [...prev, { kind: 'guess', track, correct }])
       setSearchResults([])
@@ -161,12 +197,18 @@ export default function PublicMode({ onBack }) {
     console.log('[guess] skip')
     if (failCount + 1 >= STAGES.length) {
       recordRound(anonIdRef.current, { track: currentTrack, correct: false, clipSeconds: null })
+      setSessionResults((prev) => [...prev, { correct: false, clipSeconds: null }])
     }
     setAttempts((prev) => [...prev, { kind: 'skip', correct: false }])
   }, [currentTrack, over, busy, failCount])
 
   const startNewSong = useCallback(() => {
     if (!pool) return
+    const unplayed = pool.filter((t) => !playedTrackIdsRef.current.has(t.id))
+    if (unplayed.length === 0) {
+      setPoolExhausted(true)
+      return
+    }
     const nextTrack = pickUnplayedTrack(pool, playedTrackIdsRef.current)
     if (nextTrack) playedTrackIdsRef.current.add(nextTrack.id)
     setCurrentTrack(nextTrack)
@@ -177,8 +219,43 @@ export default function PublicMode({ onBack }) {
     setWinClipSeconds(null)
   }, [pool])
 
+  // Without this, currentTrack/attempts from the just-left pool linger in
+  // state and the reveal overlay (over && currentTrack) resurfaces the old
+  // song once poolExhausted/showSessionStats stop blocking it — clearing
+  // them here is what actually makes the prompt screen show cleanly.
+  const clearActivePool = useCallback(() => {
+    setPool(null)
+    setCurrentTrack(null)
+    setAttempts([])
+    setPoolExhausted(false)
+  }, [])
+
+  // Leaving the pool (manually via the header button, or automatically once
+  // it's exhausted) checkpoints on a session-stats summary first rather than
+  // silently dropping the player back at the prompt screen.
+  const goToNewPool = useCallback(() => {
+    if (sessionResults.length > 0) {
+      setShowSessionStats(true)
+    } else {
+      clearActivePool()
+      setShowPromptSetup(true)
+    }
+  }, [sessionResults, clearActivePool])
+
+  const confirmNewPool = useCallback(() => {
+    setSessionResults([])
+    setShowSessionStats(false)
+    clearActivePool()
+    setShowPromptSetup(true)
+  }, [clearActivePool])
+
   const readyToPlay = Boolean(currentTrack)
   const unlockedX = over ? WAVEFORM_WIDTH : MARKER_POSITIONS[unlockedIndex]
+
+  const sessionWins = sessionResults.filter((r) => r.correct)
+  const sessionAvgClip = sessionWins.length
+    ? sessionWins.reduce((sum, r) => sum + r.clipSeconds, 0) / sessionWins.length
+    : null
 
   return (
     <div className="app">
@@ -202,6 +279,9 @@ export default function PublicMode({ onBack }) {
 
       {showStats && stats && (
         <div className="stats-panel">
+          <p className="label" style={{ marginBottom: 8 }}>
+            lifetime stats
+          </p>
           <p>Total songs guessed: {stats.totalGuessed}</p>
           <p>
             Average clip length guessed within:{' '}
@@ -211,6 +291,47 @@ export default function PublicMode({ onBack }) {
         </div>
       )}
 
+      {showPromptSetup && (
+        <div className="receipt login-card">
+          <div className="grain" />
+          <div className="grain-coarse" />
+          <div className="grain-wash" />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            <NoteIcon size={34} />
+          </div>
+          <p className="stamp-font" style={{ fontSize: 24, margin: '0 0 14px' }}>
+            neeshdle
+          </p>
+          <p className="login-tagline">describe the songs you want to guess</p>
+          <div className="term-input" style={{ margin: '14px 0' }}>
+            <span>&gt;</span>
+            <input
+              value={promptInput}
+              onChange={(e) => setPromptInput(e.target.value)}
+              placeholder='e.g. "5 slayyyter songs" or "classic r&b"'
+              disabled={promptBusy}
+              autoComplete="off"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') generatePool(promptInput)
+              }}
+            />
+          </div>
+          {promptSetupError && <p className="error">{promptSetupError}</p>}
+          <button
+            className="login-btn"
+            onClick={() => generatePool(promptInput)}
+            disabled={promptBusy || !promptInput.trim()}
+            style={{ marginBottom: 10 }}
+          >
+            {promptBusy ? 'Building pool…' : 'Generate pool'}
+          </button>
+          <button className="btn-bracket" onClick={loadDefaultPool} disabled={promptBusy}>
+            [ or play today's top hits ]
+          </button>
+        </div>
+      )}
+
+      {!showPromptSetup && pool && (
       <div className="receipt">
         <div className="grain" />
         <div className="grain-coarse" />
@@ -229,7 +350,10 @@ export default function PublicMode({ onBack }) {
                 setShowStats((v) => !v)
               }}
             >
-              [ STATS ]
+              [ LIFETIME STATS ]
+            </button>
+            <button className="btn-bracket" onClick={goToNewPool}>
+              [ NEW POOL ]
             </button>
           </div>
         </div>
@@ -237,13 +361,10 @@ export default function PublicMode({ onBack }) {
           [ public mode ]
         </p>
         <p className="label" style={{ textAlign: 'center', marginBottom: 18 }}>
-          guess it — no login required
+          {poolPrompt ? `pool: ${poolPrompt}` : 'guess it — no login required'}
         </p>
 
         <hr className="divider" style={{ marginTop: 0 }} />
-
-        {poolError && <p className="error">Could not load songs: {poolError}</p>}
-        {!poolError && !pool && <p className="hint">Loading a track…</p>}
 
         {readyToPlay && (
           <>
@@ -415,8 +536,72 @@ export default function PublicMode({ onBack }) {
           </>
         )}
       </div>
+      )}
 
-      {over && currentTrack && (
+      {showSessionStats && (
+        <div className="result-overlay">
+          <div className="receipt result-card">
+            <div className="grain" />
+            <div className="grain-coarse" />
+            <div className="grain-wash" />
+            <p className="stamp-font" style={{ fontSize: 20, textAlign: 'center', margin: '20px 0 14px' }}>
+              session stats
+            </p>
+            <p className="label" style={{ textAlign: 'center' }}>
+              {sessionWins.length} of {sessionResults.length} guessed correctly
+            </p>
+            <p className="label" style={{ textAlign: 'center', marginBottom: 20 }}>
+              avg clip: {sessionAvgClip != null ? `${sessionAvgClip.toFixed(2)}s` : '—'}
+            </p>
+            <div className="reveal-actions">
+              <button className="stamp-btn new-song-btn" onClick={confirmNewPool}>
+                <svg width="112" height="46" viewBox="0 0 112 46" style={{ position: 'absolute' }}>
+                  <path
+                    d="M6,6 C38,2 76,3 106,6 C109,16 108,30 106,40 C74,44 36,43 6,39 C3,28 4,16 6,6 Z"
+                    fill="#1a1a1a"
+                    style={{ filter: 'url(#rough)', transform: 'rotate(-3deg)', transformOrigin: 'center' }}
+                  />
+                </svg>
+                <span className="label-overlay" style={{ color: '#f4f1e6', transform: 'rotate(-3deg)' }}>
+                  NEW POOL
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {poolExhausted && !showSessionStats && (
+        <div className="result-overlay">
+          <div className="receipt result-card">
+            <div className="grain" />
+            <div className="grain-coarse" />
+            <div className="grain-wash" />
+            <p className="stamp-font" style={{ fontSize: 20, textAlign: 'center', margin: '20px 0 14px' }}>
+              that's every song in this pool!
+            </p>
+            <p className="label" style={{ textAlign: 'center', marginBottom: 20 }}>
+              {pool?.length ?? 0} of {pool?.length ?? 0} played
+            </p>
+            <div className="reveal-actions">
+              <button className="stamp-btn new-song-btn" onClick={goToNewPool}>
+                <svg width="112" height="46" viewBox="0 0 112 46" style={{ position: 'absolute' }}>
+                  <path
+                    d="M6,6 C38,2 76,3 106,6 C109,16 108,30 106,40 C74,44 36,43 6,39 C3,28 4,16 6,6 Z"
+                    fill="#1a1a1a"
+                    style={{ filter: 'url(#rough)', transform: 'rotate(-3deg)', transformOrigin: 'center' }}
+                  />
+                </svg>
+                <span className="label-overlay" style={{ color: '#f4f1e6', transform: 'rotate(-3deg)' }}>
+                  NEW PROMPT
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {over && currentTrack && !poolExhausted && !showSessionStats && (
         <div className="result-overlay">
           <div className="receipt result-card">
             <div className="grain" />
