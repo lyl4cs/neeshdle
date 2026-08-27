@@ -46,6 +46,29 @@ export async function searchTracksByArtist(artistName, limit = 15) {
   return data.results.filter((r) => r.previewUrl).map(toTrackSummary)
 }
 
+function normalize(str) {
+  return str
+    .toLowerCase()
+    .replace(/[^\w\s]|_/g, '')
+    .trim()
+}
+
+// There's no reliable way to search for a specific album directly (iTunes's
+// album search is inconsistent — e.g. searching "Room on Fire" doesn't
+// surface The Strokes' actual album at all) — instead, pull everything by
+// the artist (already proven reliable) and filter by collectionName
+// client-side, which the artist-scoped entity=song search returns for free.
+export async function searchTracksByArtistAndAlbum(artistName, albumName, limit = 100) {
+  if (!artistName.trim() || !albumName.trim()) return []
+  const data = await itunesGet(
+    `search?media=music&entity=song&attribute=artistTerm&limit=${limit}&term=${encodeURIComponent(artistName)}`,
+  )
+  const wantAlbum = normalize(albumName)
+  return data.results
+    .filter((r) => r.previewUrl && r.collectionName && normalize(r.collectionName).includes(wantAlbum))
+    .map(toTrackSummary)
+}
+
 function largestImage(images) {
   return images?.[images.length - 1]?.label ?? null
 }
