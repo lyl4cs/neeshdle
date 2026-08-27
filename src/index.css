@@ -592,3 +592,14 @@ a:hover {
   width: 140px;
   height: 46px;
 }
+
+/* The 0.35px blur on .receipt/.result-card reads as a subtle aged-paper
+   softening on a desktop screen, but the same absolute blur is much more
+   noticeable relative to small text viewed close-up on a phone — drop it on
+   narrow viewports and keep just the contrast/saturation shift. */
+@media (max-width: 480px) {
+  .receipt,
+  .result-card {
+    filter: contrast(1.12) saturate(0.92);
+  }
+}
